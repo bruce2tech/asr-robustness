@@ -61,6 +61,12 @@ ft-clean:  ## Phase 6: fine-tune whisper-small on clean train-clean-100 (single-
 ft-mct:  ## Phase 6: fine-tune whisper-small with multi-condition (noise+reverb+codec) augmentation
 	$(PY) -m asr_robustness.train.whisper_ft --config configs/train/mct_ft.yaml
 
+ft-wav2vec2-clean:  ## Phase 6: fine-tune wav2vec2-base on clean train-clean-100 (single-GPU cloud)
+	$(PY) -m asr_robustness.train.wav2vec2_ft --config configs/train/wav2vec2_clean_ft.yaml
+
+ft-wav2vec2-mct:  ## Phase 6: fine-tune wav2vec2-base with multi-condition augmentation
+	$(PY) -m asr_robustness.train.wav2vec2_ft --config configs/train/wav2vec2_mct_ft.yaml
+
 ft-eval:  ## Phase 6: evaluate the off-the-shelf / clean-FT / MCT-FT checkpoints head-to-head
 	$(PY) -m asr_robustness.eval.run --config configs/experiments/ft_ablation.yaml
 

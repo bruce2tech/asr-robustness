@@ -1,0 +1,84 @@
+# Phase 6 wav2vec 2.0 ablation B: multi-condition fine-tune (MCT). Identical
+# hyperparameters to wav2vec2_clean_ft.yaml -- the *only* difference within
+# the wav2vec 2.0 arm is the `augmentation:` block, which mirrors the
+# condition mix used for Whisper MCT (configs/train/mct_ft.yaml).
+#
+# Honest framing of the cross-architecture comparison (Whisper-MCT vs.
+# wav2vec2-MCT):
+#
+#   * Matched (held constant): training corpus, augmentation condition
+#     distribution, learning rate, batch size, steps, warmup, seed,
+#     precision (bf16).
+#   * Forced to differ by architecture: loss function (CTC vs cross-entropy),
+#     inference method (deterministic argmax vs autoregressive generation),
+#     vocabulary size (32 vs ~50k), input representation (raw waveform vs
+#     log-mel), and the canonical FT recipe (wav2vec 2.0's feature encoder
+#     is frozen during continued FT; Whisper's full model trains).
+#   * Confounds, NOT architectural per se: model size (~317M wav2vec2-large
+#     vs 244M whisper-small -- size-matched within ~30 %, narrowed but not
+#     eliminated) and pretraining-data scale (60k h SSL + 960 h supervised
+#     vs ~680k h weakly supervised web audio).
+#
+# Within-architecture clean-FT vs MCT-FT pairs are cleanly isolated.
+# Cross-architecture comparisons characterize relative MCT effects but
+# cannot fully separate architecture from size/pretraining differences.
+
+model_id: facebook/wav2vec2-large-960h
+train_manifest: manifests/librispeech_train-clean-100.jsonl
+eval_manifest: manifests/librispeech_dev-clean.jsonl
+eval_limit: 200
+
+augmentation:
+  degradation_config: configs/degradation.yaml
+  noise_bank: data/musan
+  rir_bank: data/RIRS_NOISES/simulated_rirs
+  conditions:
+    # Anchor: keep a fraction of the training mix clean so clean-set WER
+    # doesn't drift downward during MCT training.
+    - clean
+    - clean
+    - clean
+    # Stationary noise across the SNR ladder (training spans -10..20 dB).
+    - noise_20db
+    - noise_10db
+    - noise_5db
+    - noise_0db
+    - noise_-5db
+    - noise_-10db
+    # Multi-talker babble across the same ladder (separate failure mode).
+    - babble_20db
+    - babble_5db
+    - babble_0db
+    - babble_-5db
+    - babble_-10db
+    # Convolutive + narrowband + codec + packet loss -- one entry each so
+    # exposure to all the degradation *families* is balanced.
+    - reverb
+    - telephone
+    - codec_opus_6k
+    - packet_loss_30pct
+    # Compound operational scenarios at their severe variants.
+    - reverb_noise_5db
+    - cellphone_in_crowd_-5db
+    - far_field_surveillance_-5db
+    - walkie_talkie_0db
+
+output_dir: results/checkpoints/wav2vec2-base-mct-ft
+seed: 0
+
+training:
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  warmup_steps: 500
+  max_steps: 4000
+  gradient_checkpointing: false
+  bf16: true
+  fp16: false
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 2
+  logging_steps: 50
+  dataloader_num_workers: 4
+  report_to: none

@@ -31,6 +31,7 @@ class ESPnetModel(ASRModel):
         model_id: str,
         name: str | None = None,
         device: str | None = None,
+        beam_size: int = 5,
     ):
         # Imported here (not at module top) so a missing espnet install only
         # fails when this model is actually used.
@@ -41,10 +42,14 @@ class ESPnetModel(ASRModel):
         self.model_id = model_id
 
         downloaded = ModelDownloader().download_and_unpack(model_id)
+        # beam_size=5 (vs the ESPnet default of 20) cuts decode time ~3-4x with
+        # negligible WER impact on this scale of model; the default is too
+        # generous for the model sizes we're benchmarking.
         self.speech2text = Speech2Text(
             **downloaded,
             device=device or "cpu",  # MPS support in ESPnet is incomplete
             nbest=1,
+            beam_size=beam_size,
         )
 
     def transcribe(self, audio: np.ndarray, sr: int) -> str:

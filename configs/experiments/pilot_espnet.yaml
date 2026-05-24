@@ -1,0 +1,36 @@
+# ESPnet addition to the Phase 5 pilot.
+#
+# Runs ONLY the pretrained ESPnet E-Branchformer through the same conditions x
+# the same 100 utterances as the existing pilot (whisper-base + wav2vec2-base).
+# `manifest`, `seed_base`, `limit`, and `conditions` match pilot.yaml exactly,
+# so the per-utterance degradation realizations (noise clip choice, RIR,
+# packet-loss frames, etc.) are identical -- the resulting rows merge 1:1 into
+# results/pilot.jsonl for a fair three-architecture comparison.
+#
+# Decode runs locally on CPU at beam_size=5 (~6 s/utt steady state -> ~2.5-3 h
+# for 1600 decodes). Beam=5 cuts decode time ~3-4x vs ESPnet's default beam=20
+# with negligible WER impact at this model scale.
+
+manifest: manifests/librispeech_dev-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+conditions:
+  [clean,
+   noise_20db, noise_0db, noise_-5db, noise_-10db,
+   babble_20db, babble_0db, babble_-5db, babble_-10db,
+   reverb, telephone, codec_opus_6k, packet_loss_30pct,
+   cellphone_in_crowd_-5db, far_field_surveillance_-5db, walkie_talkie_0db]
+
+noise_bank: data/musan
+rir_bank: data/RIRS_NOISES/simulated_rirs
+
+models:
+  - name: espnet-ebranchformer
+    key: espnet
+    model_id: asapp/e_branchformer_librispeech
+    device: cpu
+    beam_size: 5
+
+output: results/pilot_espnet.jsonl
+seed_base: 0
+limit: 100

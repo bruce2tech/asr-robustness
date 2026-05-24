@@ -39,4 +39,6 @@ models:
 
 output: results/ft_ablation.jsonl
 seed_base: 0
-limit: null
+# Match the pilot (100 utts) so the WER curves overlay 1:1 with reports/pilot/.
+# Set to null and re-run later for the full test-clean (2620 utts, ~13h on MPS).
+limit: 100

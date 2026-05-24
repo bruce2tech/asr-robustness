@@ -1,0 +1,43 @@
+# Phase 6 wav2vec 2.0 ablation A: clean fine-tune of wav2vec 2.0-large on
+# LibriSpeech train-clean-100. This is the within-architecture baseline that
+# the multi-condition variant (wav2vec2_mct_ft.yaml) has to beat under
+# degradation. The two share every hyperparameter, so within this
+# architecture the only variable across the pair is whether the training
+# audio is degraded -- that's the ablation.
+#
+# Model size choice: wav2vec 2.0-large (~317M params) is chosen over
+# wav2vec 2.0-base (~95M) to size-match whisper-small (244M) within ~30 %.
+# This narrows -- though does not eliminate -- the size confound in the
+# cross-architecture comparison (see wav2vec2_mct_ft.yaml for the full
+# confound discussion).
+#
+# Other hyperparameters mirror configs/train/clean_ft.yaml (the Whisper
+# baseline) wherever the wav2vec 2.0 recipe permits.
+
+model_id: facebook/wav2vec2-large-960h
+train_manifest: manifests/librispeech_train-clean-100.jsonl
+eval_manifest: manifests/librispeech_dev-clean.jsonl
+eval_limit: 200          # ~5 minutes / eval; stable WER signal
+
+# No `augmentation:` block -- this is the clean-FT baseline. The dataset
+# returns features extracted straight from the original LibriSpeech audio.
+
+output_dir: results/checkpoints/wav2vec2-base-clean-ft
+seed: 0
+
+training:
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5              # matches Whisper FT for cross-arch parity
+  warmup_steps: 500
+  max_steps: 4000                    # ~5 epochs over train-clean-100
+  gradient_checkpointing: false      # L40S 48GB has the headroom
+  bf16: true
+  fp16: false
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 2
+  logging_steps: 50
+  dataloader_num_workers: 4
+  report_to: none
