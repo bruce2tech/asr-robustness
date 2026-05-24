@@ -16,11 +16,14 @@ dist/
 .mypy_cache/
 
 # Project data + artifacts (large; reproduced via scripts/)
-data/
-manifests/
-results/
-checkpoints/
-runs/
+# Leading slash anchors these to the repo root -- WITHOUT it, `data/` would
+# also (incorrectly) ignore `src/asr_robustness/data/`, which is a Python
+# subpackage we very much want tracked.
+/data/
+/manifests/
+/results/
+/checkpoints/
+/runs/
 *.wav
 *.flac
 *.tar.gz
@@ -59,7 +62,7 @@ credentials/
 
 # --- Generated artifacts (regeneratable; not source) -----------------------
 # Auditioned audio examples -- rebuild with `make demo`.
-demo/
+/demo/
 # Conversation transcript exports -- rebuild with scripts/export_transcript.py.
 docs/session-transcript.md
 docs/session-transcript.html
