@@ -63,7 +63,7 @@ augmentation:
     - far_field_surveillance_-5db
     - walkie_talkie_0db
 
-output_dir: results/checkpoints/wav2vec2-base-mct-ft
+output_dir: results/checkpoints/wav2vec2-large-mct-ft
 seed: 0
 
 training:

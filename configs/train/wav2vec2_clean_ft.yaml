@@ -22,7 +22,7 @@ eval_limit: 200          # ~5 minutes / eval; stable WER signal
 # No `augmentation:` block -- this is the clean-FT baseline. The dataset
 # returns features extracted straight from the original LibriSpeech audio.
 
-output_dir: results/checkpoints/wav2vec2-base-clean-ft
+output_dir: results/checkpoints/wav2vec2-large-clean-ft
 seed: 0
 
 training:
