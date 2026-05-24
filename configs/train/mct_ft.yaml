@@ -60,7 +60,7 @@ training:
   learning_rate: 1.0e-5
   warmup_steps: 500
   max_steps: 4000
-  gradient_checkpointing: true
+  gradient_checkpointing: false
   bf16: true
   fp16: false
   eval_steps: 1000
