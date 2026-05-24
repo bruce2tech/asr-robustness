@@ -1,0 +1,31 @@
+# ASR Robustness Under Acoustic Degradation -- dependencies
+# Install everything:           pip install -r requirements.txt
+# Phase 1-2 only (harness):     pip install numpy scipy soundfile pyyaml jiwer pandas matplotlib tqdm pytest
+
+# --- Core: degradation harness, scoring, analysis (CPU-only, runs anywhere) ---
+numpy>=1.24
+scipy>=1.10
+soundfile>=0.12
+pyyaml>=6.0
+jiwer>=3.0            # WER / CER computation with text normalization
+pandas>=2.0
+matplotlib>=3.7
+tqdm>=4.65
+
+# --- Dev ---
+pytest>=7.4
+ruff>=0.4
+
+# --- Models + training (Phase 4+; heavier, GPU recommended for training) ---
+torch>=2.2
+torchaudio>=2.2
+transformers>=4.40
+datasets>=2.19
+librosa>=0.10
+openai-whisper>=20231117
+accelerate>=0.30
+evaluate>=0.4
+
+# --- ESPnet (Phase 4; pretrained-model inference only) ---
+espnet>=202402
+espnet_model_zoo>=0.1.7

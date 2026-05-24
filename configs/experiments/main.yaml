@@ -1,0 +1,29 @@
+# Main benchmark: all models x the core degradation conditions.
+# Run with:  make decode   (or: python -m asr_robustness.eval.run --config ...)
+
+manifest: manifests/librispeech_test-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+conditions:
+  [clean, noise_20db, noise_10db, noise_0db,
+   babble_0db, babble_-5db, reverb, telephone, reverb_noise_5db,
+   packet_loss_10pct, packet_loss_30pct, codec_g726, codec_g722, codec_opus_6k,
+   # named operational scenarios (moderate + severe per scenario)
+   cellphone_in_crowd_5db, cellphone_in_crowd_-5db,
+   far_field_surveillance_5db, far_field_surveillance_-5db,
+   lossy_voip_10pct, lossy_voip_30pct,
+   walkie_talkie_10db, walkie_talkie_0db]
+
+# Bank directories (populated by `make data`). Conditions that need them fail
+# with a clear error if the directory is absent.
+noise_bank: data/musan
+rir_bank: data/RIRS_NOISES/simulated_rirs
+
+models:
+  - {name: whisper-base,  key: whisper,  model_id: openai/whisper-base}
+  - {name: whisper-small, key: whisper,  model_id: openai/whisper-small}
+  - {name: wav2vec2-base, key: wav2vec2, model_id: facebook/wav2vec2-base-960h}
+
+output: results/main.jsonl
+seed_base: 0
+limit: null        # null = all utterances; set an int for a quick run

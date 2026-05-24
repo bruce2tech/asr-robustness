@@ -1,0 +1,37 @@
+# Phase 6 ablation A: clean fine-tune of whisper-small on LibriSpeech
+# train-clean-100. This is the *baseline* the multi-condition variant
+# (mct_ft.yaml) has to beat under degradation. Both runs share every
+# hyperparameter so the only thing that varies between them is whether the
+# training audio is degraded -- that is the entire ablation.
+
+model_id: openai/whisper-small
+language: en
+task: transcribe
+
+train_manifest: manifests/librispeech_train-clean-100.jsonl
+eval_manifest: manifests/librispeech_dev-clean.jsonl
+eval_limit: 200          # ~10 minutes / eval; we only need a stable signal
+
+# No `augmentation:` block -- this is the clean-FT baseline. The dataset
+# returns features extracted straight from the original LibriSpeech audio.
+
+output_dir: results/checkpoints/whisper-small-clean-ft
+seed: 0
+
+training:
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1     # effective batch 16 on single A100
+  learning_rate: 1.0e-5
+  warmup_steps: 500
+  max_steps: 4000                    # ~5 epochs over train-clean-100
+  gradient_checkpointing: true       # whisper-small fits without it on A100, but keeps memory headroom for the augmented run identical
+  bf16: true                         # A100 / H100 prefer bf16 over fp16
+  fp16: false
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 2
+  logging_steps: 50
+  generation_max_length: 225
+  dataloader_num_workers: 4
+  report_to: none

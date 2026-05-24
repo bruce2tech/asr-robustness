@@ -1,0 +1,72 @@
+# Phase 6 ablation B: multi-condition fine-tune (MCT). Identical hyperparameters
+# to clean_ft.yaml; the *only* difference is the `augmentation:` block, which
+# applies one randomly-sampled named degradation condition to each training
+# utterance on every step. The condition list spans every degradation family
+# in the eval harness (stationary noise, babble, reverb, narrowband+codec,
+# packet loss) at a range of SNRs, so the model is exposed to the same
+# distribution of degradations it will be evaluated on -- the classical MCT
+# recipe. `clean` is repeated so a noticeable fraction of the training mix is
+# still clean audio (prevents clean-WER regression).
+
+model_id: openai/whisper-small
+language: en
+task: transcribe
+
+train_manifest: manifests/librispeech_train-clean-100.jsonl
+eval_manifest: manifests/librispeech_dev-clean.jsonl
+eval_limit: 200
+
+augmentation:
+  degradation_config: configs/degradation.yaml
+  noise_bank: data/musan
+  rir_bank: data/RIRS_NOISES/simulated_rirs
+  conditions:
+    # Anchor: keep ~25% of the training mix clean so clean-set WER doesn't drift.
+    - clean
+    - clean
+    - clean
+    # Stationary noise across the SNR ladder (training spans -10..20 dB).
+    - noise_20db
+    - noise_10db
+    - noise_5db
+    - noise_0db
+    - noise_-5db
+    - noise_-10db
+    # Multi-talker babble across the same ladder (separate failure mode).
+    - babble_20db
+    - babble_5db
+    - babble_0db
+    - babble_-5db
+    - babble_-10db
+    # Convolutive + narrowband + codec + packet loss -- one entry each so
+    # exposure to all the degradation *families* is balanced.
+    - reverb
+    - telephone
+    - codec_opus_6k
+    - packet_loss_30pct
+    # Compound operational scenarios at their severe variants.
+    - reverb_noise_5db
+    - cellphone_in_crowd_-5db
+    - far_field_surveillance_-5db
+    - walkie_talkie_0db
+
+output_dir: results/checkpoints/whisper-small-mct-ft
+seed: 0
+
+training:
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  warmup_steps: 500
+  max_steps: 4000
+  gradient_checkpointing: true
+  bf16: true
+  fp16: false
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 2
+  logging_steps: 50
+  generation_max_length: 225
+  dataloader_num_workers: 4
+  report_to: none

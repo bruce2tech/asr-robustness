@@ -1,0 +1,25 @@
+# WER-vs-SNR sweep: every model across the SNR ladder (configs/degradation.yaml
+# `snr_sweep_db`). Produces the curves for the central WER-vs-SNR analysis.
+
+manifest: manifests/librispeech_test-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+conditions:
+  [clean,
+   # Full matched noise + babble ladders -- the central WER-vs-SNR comparison.
+   noise_20db, noise_15db, noise_10db, noise_5db, noise_0db,
+   noise_-5db, noise_-10db, noise_-15db, noise_-20db,
+   babble_20db, babble_15db, babble_10db, babble_5db, babble_0db,
+   babble_-5db, babble_-10db, babble_-15db, babble_-20db]
+
+noise_bank: data/musan
+rir_bank: data/RIRS_NOISES/simulated_rirs
+
+models:
+  - {name: whisper-base,  key: whisper,  model_id: openai/whisper-base}
+  - {name: whisper-small, key: whisper,  model_id: openai/whisper-small}
+  - {name: wav2vec2-base, key: wav2vec2, model_id: facebook/wav2vec2-base-960h}
+
+output: results/snr_sweep.jsonl
+seed_base: 0
+limit: null

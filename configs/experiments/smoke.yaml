@@ -1,0 +1,15 @@
+# Smoke test: tiny, fast end-to-end check on the dev-clean split.
+# Use after `make data-minimal`. Run with:
+#   python -m asr_robustness.eval.run --config configs/experiments/smoke.yaml --limit 5
+
+manifest: manifests/librispeech_dev-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+conditions: [clean, telephone]    # telephone needs no banks -> runnable with minimal data
+
+models:
+  - {name: whisper-tiny, key: whisper, model_id: openai/whisper-tiny}
+
+output: results/smoke.jsonl
+seed_base: 0
+limit: 5

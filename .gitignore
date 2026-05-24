@@ -1,0 +1,76 @@
+# Virtual environments
+speech_recognition/
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Project data + artifacts (large; reproduced via scripts/)
+data/
+manifests/
+results/
+checkpoints/
+runs/
+*.wav
+*.flac
+*.tar.gz
+*.zip
+
+# Reports build artifacts
+reports/*.pdf
+reports/_build/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Claude local settings (personal, not shared)
+.claude/settings.local.json
+
+# --- Secrets / credentials -------------------------------------------------
+# Never commit any of these. If something here accidentally lands in git,
+# REVOKE the token / regenerate the key before doing anything else; gitignore
+# does not unpublish what has already been pushed.
+.env
+.env.*
+*.token
+.hf_token
+.huggingface
+*.pem
+*.key
+*.rtf
+secrets/
+credentials/
+
+# --- Generated artifacts (regeneratable; not source) -----------------------
+# Auditioned audio examples -- rebuild with `make demo`.
+demo/
+# Conversation transcript exports -- rebuild with scripts/export_transcript.py.
+docs/session-transcript.md
+docs/session-transcript.html
+docs/session-transcript.pdf
+
+# --- Misc ------------------------------------------------------------------
+*.log
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+*~
+.python-version
+node_modules/

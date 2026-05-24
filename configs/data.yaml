@@ -1,0 +1,32 @@
+# Dataset acquisition config.
+#
+# Disk is not a constraint here, so corpora are downloaded generously; what
+# costs real money is GPU time, so the *training* subset is kept small by
+# default (see datasets.librispeech.train_subsets).
+
+root: data
+manifest_dir: manifests
+
+datasets:
+  librispeech:
+    # Splits used for evaluation (decoding + degradation sweep).
+    eval_subsets: [test-clean, test-other, dev-clean, dev-other]
+    # Splits used for fine-tuning. train-clean-360 is available but off by
+    # default -- it multiplies GPU cost without changing the ablation outcome.
+    train_subsets: [train-clean-100]
+
+  musan:
+    enabled: true        # full noise bank (music / speech / ambient)
+
+  rirs:
+    enabled: true        # full room-impulse-response corpus
+
+  common_voice:
+    enabled: true        # accent-labelled; for the Phase 7 accent breakdown
+    hf_id: mozilla-foundation/common_voice_17_0
+    config: en
+    split: test
+
+  voices:
+    enabled: false       # real noisy/reverberant holdout; enable for Phase 7
+    path: null           # set to the extracted VOiCES directory once obtained

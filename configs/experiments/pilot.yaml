@@ -1,0 +1,40 @@
+# Pilot sweep -- a representative, time-bounded run to validate the curve
+# shapes before committing to the full multi-hour sweep.
+#
+#   ~100 utts x 12 conditions x whisper-base   ~=   20-30 min on MPS.
+#
+# Conditions cover one point from each degradation family plus a severe
+# variant of each operational scenario -- enough to see whether each axis
+# moves WER the way the ear says it should.
+
+manifest: manifests/librispeech_dev-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+conditions:
+  [clean,
+   # Matched noise + babble sweeps -- same SNRs so the two curves overlay
+   # honestly on the noise-vs-babble plot.
+   noise_20db, noise_0db, noise_-5db, noise_-10db,
+   babble_20db, babble_0db, babble_-5db, babble_-10db,
+   reverb,                                 # convolutive
+   telephone,                              # narrowband + mu-law
+   codec_opus_6k,                          # modern VoIP codec, low bitrate
+   packet_loss_30pct,                      # transmission dropouts
+   cellphone_in_crowd_-5db,                # operational: mobile intercept
+   far_field_surveillance_-5db,            # operational: distant mic
+   walkie_talkie_0db]                      # operational: tactical radio
+
+noise_bank: data/musan
+rir_bank: data/RIRS_NOISES/simulated_rirs
+
+models:
+  # Two architectures side-by-side: a generative encoder-decoder (Whisper) and
+  # a CTC encoder (wav2vec 2.0). Under heavy degradation Whisper is expected to
+  # *hallucinate* (insertions / length blow-up) while wav2vec 2.0 should *drop
+  # or garble* (deletions / substitutions) -- a clean architectural contrast.
+  - {name: whisper-base,  key: whisper,  model_id: openai/whisper-base}
+  - {name: wav2vec2-base, key: wav2vec2, model_id: facebook/wav2vec2-base-960h}
+
+output: results/pilot.jsonl
+seed_base: 0
+limit: 100

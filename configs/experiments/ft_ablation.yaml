@@ -1,0 +1,42 @@
+# Phase 6 ablation evaluation: WER-vs-SNR head-to-head over all three
+# checkpoints -- the off-the-shelf whisper-small baseline, the clean-FT
+# baseline, and the MCT fine-tune. The model entries point at local
+# checkpoint directories produced by `make ft-clean` / `make ft-mct`; the
+# WhisperModel adapter loads them through HuggingFace `from_pretrained`
+# transparently (it accepts local paths the same way it accepts model-hub IDs).
+#
+# Run with:   python -m asr_robustness.eval.run --config configs/experiments/ft_ablation.yaml
+
+manifest: manifests/librispeech_test-clean.jsonl
+degradation_config: configs/degradation.yaml
+
+# Same condition grid as the pilot, so plots overlay 1:1 with the Phase 5
+# pilot report. Once the full snr_sweep has run, extend this with the fine SNR
+# ladder for the final figure.
+conditions:
+  [clean,
+   noise_20db, noise_0db, noise_-5db, noise_-10db,
+   babble_20db, babble_0db, babble_-5db, babble_-10db,
+   reverb,
+   telephone,
+   codec_opus_6k,
+   packet_loss_30pct,
+   cellphone_in_crowd_-5db,
+   far_field_surveillance_-5db,
+   walkie_talkie_0db]
+
+noise_bank: data/musan
+rir_bank: data/RIRS_NOISES/simulated_rirs
+
+models:
+  # Off-the-shelf baseline -- the curve to beat under degradation.
+  - {name: whisper-small,         key: whisper, model_id: openai/whisper-small}
+  # Clean fine-tune -- isolates "does in-domain FT alone help on degraded audio?"
+  - {name: whisper-small-clean-ft, key: whisper, model_id: results/checkpoints/whisper-small-clean-ft}
+  # Multi-condition FT -- the experimental arm. The hypothesis is that this
+  # curve sits below the other two across the SNR ladder.
+  - {name: whisper-small-mct-ft,   key: whisper, model_id: results/checkpoints/whisper-small-mct-ft}
+
+output: results/ft_ablation.jsonl
+seed_base: 0
+limit: null

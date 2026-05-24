@@ -1,0 +1,43 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Bash(git status:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git show:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)",
+      "Bash(du:*)",
+      "Bash(tree:*)",
+      "Bash(mkdir:*)",
+      "Bash(speech_recognition/bin/python --version)",
+      "Bash(speech_recognition/bin/python -m pytest:*)",
+      "Bash(speech_recognition/bin/python -m ruff:*)",
+      "Bash(speech_recognition/bin/python -m asr_robustness:*)",
+      "Bash(speech_recognition/bin/pip install:*)",
+      "Bash(speech_recognition/bin/pip list:*)",
+      "Bash(speech_recognition/bin/pip show:*)",
+      "Bash(speech_recognition/bin/pip freeze:*)",
+      "Bash(make test)",
+      "Bash(make lint)",
+      "Bash(make setup)"
+    ]
+  }
+}

@@ -1,0 +1,117 @@
+# Degradation conditions for the evaluation harness.
+#
+# Each named condition is an ordered list of stages applied to a clean signal.
+# `add_noise` / `add_babble` / `add_reverb` draw samples from the noise / RIR
+# bank using the per-utterance seed, so results are reproducible.
+#
+# The noise bank is built from `data/musan/` (see configs/experiments/*.yaml),
+# whose clip IDs are prefixed `noise/`, `speech/`, `music/`. `noise_type`
+# selects the category: ambient noise vs. competing speech for babble.
+#
+# Supported effects (see src/asr_robustness/degrade/effects.py):
+#   add_noise     params: snr_db, [noise_type]
+#   add_babble    params: snr_db, [n_talkers], [noise_type]   -- multi-talker babble
+#   add_reverb    params: [rir_type]
+#   narrowband    params: [low_hz, high_hz]                   -- telephone band-pass
+#   mu_law_codec  params: [mu]                                -- G.711 quantization
+#   clip          params: [percentile]                        -- overdriven-mic clipping
+#   gain          params: gain_db
+
+conditions:
+  clean: []
+
+  # --- Stationary / ambient additive noise (MUSAN noise/ category) ---
+  noise_20db:
+    - {effect: add_noise, snr_db: 20, noise_type: noise}
+  noise_10db:
+    - {effect: add_noise, snr_db: 10, noise_type: noise}
+  noise_0db:
+    - {effect: add_noise, snr_db: 0, noise_type: noise}
+
+  # --- Multi-talker babble (auto-generated from `babble_sweep_db` below) ---
+  # The babble conditions babble_<n>db are synthesized from the babble SNR
+  # sweep, exactly the same way noise_<n>db comes from snr_sweep_db. Sharing a
+  # config knob keeps the noise and babble sweeps trivially matched -- the
+  # condition for an honest "noise vs babble" comparison plot.
+
+  # --- Reverberation ---
+  reverb:
+    - {effect: add_reverb}
+
+  # --- Narrowband telephone channel ---
+  telephone:
+    - {effect: narrowband, low_hz: 300, high_hz: 3400}
+    - {effect: mu_law_codec, mu: 255}
+
+  # --- Packet loss (VoIP / radio dropouts) ---
+  packet_loss_10pct:
+    - {effect: packet_loss, loss_rate: 0.10, packet_ms: 20}
+  packet_loss_30pct:
+    - {effect: packet_loss, loss_rate: 0.30, packet_ms: 20}
+
+  # --- Real telephony / VoIP codecs (lossy encode+decode via ffmpeg) ---
+  codec_g726:                       # narrowband ADPCM telephony (16 kbit/s)
+    - {effect: apply_codec, codec: g726}
+  codec_g722:                       # wideband telephony (64 kbit/s)
+    - {effect: apply_codec, codec: g722}
+  codec_opus_6k:                    # modern VoIP, very low bitrate
+    - {effect: apply_codec, codec: opus, bitrate: 6k}
+
+  # --- Compound: reverberant room + background noise (realistic far-field) ---
+  reverb_noise_5db:
+    - {effect: add_reverb}
+    - {effect: add_noise, snr_db: 5, noise_type: noise}
+
+  # --- Named operational scenarios (compound, real-world analogs) ----------
+  # Each chain models a real intercept / capture context. Stage order mirrors
+  # the physical signal path of that scenario. Each scenario has a *moderate*
+  # and a *severe* variant on its dominant difficulty axis, so the report can
+  # state per-scenario gradients ("WER at moderate cellphone X, at severe Y")
+  # without enumerating combinations.
+
+  # Mobile call from a noisy public space: babble is picked up by the mic,
+  # then the cellular codec compresses the mixed signal. Severity axis: babble SNR.
+  cellphone_in_crowd_5db:
+    - {effect: add_babble, snr_db: 5, n_talkers: 6, noise_type: speech}
+    - {effect: apply_codec, codec: opus, bitrate: 6k}
+  cellphone_in_crowd_-5db:
+    - {effect: add_babble, snr_db: -5, n_talkers: 6, noise_type: speech}
+    - {effect: apply_codec, codec: opus, bitrate: 6k}
+
+  # Far-field surveillance mic: reverberant room with other speakers present.
+  # Mirrors VOiCES design -- enables synthetic-to-real transfer check later.
+  # Severity axis: babble SNR (reverb varies per-utterance via RIR sampling).
+  far_field_surveillance_5db:
+    - {effect: add_reverb}
+    - {effect: add_babble, snr_db: 5, n_talkers: 6, noise_type: speech}
+  far_field_surveillance_-5db:
+    - {effect: add_reverb}
+    - {effect: add_babble, snr_db: -5, n_talkers: 6, noise_type: speech}
+
+  # Bad-internet VoIP call: heavy compression then packet drops on the wire
+  # (approximated as zeroed segments in the decoded stream).
+  # Severity axis: packet loss rate.
+  lossy_voip_10pct:
+    - {effect: apply_codec, codec: opus, bitrate: 6k}
+    - {effect: packet_loss, loss_rate: 0.10, packet_ms: 20}
+  lossy_voip_30pct:
+    - {effect: apply_codec, codec: opus, bitrate: 6k}
+    - {effect: packet_loss, loss_rate: 0.30, packet_ms: 20}
+
+  # Tactical voice radio: narrowband channel, dynamic-range-compressed/clipped
+  # transmitter, ambient field noise on top. Severity axis: noise SNR.
+  walkie_talkie_10db:
+    - {effect: narrowband, low_hz: 300, high_hz: 3400}
+    - {effect: clip, percentile: 90}
+    - {effect: add_noise, snr_db: 10, noise_type: noise}
+  walkie_talkie_0db:
+    - {effect: narrowband, low_hz: 300, high_hz: 3400}
+    - {effect: clip, percentile: 90}
+    - {effect: add_noise, snr_db: 0, noise_type: noise}
+
+# Matched SNR sweeps. Both expand to one condition per value: `snr_sweep_db`
+# -> noise_<n>db (stationary noise); `babble_sweep_db` -> babble_<n>db
+# (competing speech). Same values so the two curves are directly comparable
+# point-for-point on the WER-vs-SNR plot.
+snr_sweep_db:    [20, 15, 10, 5, 0, -5, -10, -15, -20]
+babble_sweep_db: [20, 15, 10, 5, 0, -5, -10, -15, -20]
