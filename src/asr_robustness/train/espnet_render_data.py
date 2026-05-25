@@ -197,7 +197,15 @@ def render(
         # MCT mode: parallelize across CPU cores. Each worker builds its own
         # DegradationPipeline (bank load is lazy so the worker startup cost
         # is small) and then renders its share of utterances.
-        workers = num_workers or os.cpu_count() or 1
+        #
+        # CAP default workers at 16 -- some cloud GPU pods (e.g. RunPod L40S)
+        # report 128 vCPUs, but spinning up 128 worker processes each holding
+        # DegradationPipeline state (banks + per-task audio buffers) OOMs the
+        # container. Sweet spot is ~8-16 workers: still ~10x speedup over
+        # single-threaded, but well within memory headroom. The user can
+        # override explicitly via --num-workers if their pod has more RAM.
+        DEFAULT_WORKER_CAP = 16
+        workers = num_workers or min(os.cpu_count() or 1, DEFAULT_WORKER_CAP)
         args_list = [
             (idx, rec, str(wav_dir), seed_base) for idx, rec in enumerate(records)
         ]
