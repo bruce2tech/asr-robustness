@@ -99,25 +99,33 @@ _DISTRIBUTED_MODE_KEYS = (
 )
 
 
-def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
-    """Write a patched copy of the bundle's training config, with two classes
-    of top-level key removed: (a) keys the locally-installed ESPnet no longer
-    recognizes, and (b) distributed-training keys carrying the bundle's
-    original 8-GPU world size into our single-GPU run.
+def _patch_pretrained_config(
+    bundle_config_path: str,
+    out_path: Path,
+    ft_overrides: dict,
+) -> Path:
+    """Write a patched copy of the bundle's training config:
 
-    The pretrained ASR bundle was serialized by the ESPnet version that
-    trained it. If the version on the pod has drifted, top-level keys it no
-    longer accepts cause ``asr_train`` to abort with "unrecognized arguments:
-    <key>" before training begins. Rather than hard-coding a whack-a-mole
-    list of legacy keys, we ask the locally-installed ``espnet2.bin.asr_train``
-    for its full set of accepted argument names and drop every config key
-    that isn't in that set.
+    1. Drop top-level keys the locally-installed ESPnet no longer recognizes
+       (e.g. legacy ``distributed`` block from older ESPnet versions).
+    2. Drop distributed-mode keys (``dist_world_size``, etc.) so the bundle's
+       8-GPU setup doesn't bleed into our single-GPU FT.
+    3. Apply our FT hyperparameter overrides INTO THE YAML rather than via
+       CLI. This is the load-bearing step: ESPnet's ``--optim_conf`` and
+       ``--scheduler_conf`` CLI args use ``NestedDictAction``, which in this
+       version leaves nested values as raw strings (so ``lr=1e-05`` becomes
+       the string ``"1e-05"``, crashing Adam's ``0.0 <= lr`` check with
+       ``TypeError: '<=' not supported between instances of 'float' and 'str'``).
+       Routing the overrides through YAML sidesteps the broken CLI parser:
+       ``yaml.safe_dump`` writes proper types, and ``yaml.safe_load`` reads
+       them back as floats/ints.
 
-    Separately, the bundle's ``dist_world_size``, ``multiprocessing_distributed``,
-    etc. ARE valid asr_train args, so the unknown-key filter leaves them
-    alone -- but they're wrong for our single-GPU FT recipe and cause
-    init_process_group to hang waiting for the other 7 workers. We strip
-    those unconditionally and let asr_train use its non-distributed defaults.
+    For nested ``optim_conf``: we MERGE (preserve bundle defaults like ``eps``,
+    ``betas``, ``weight_decay``; user wins on key collision). For ``scheduler``
+    + ``scheduler_conf``: we REPLACE both atomically -- if the user changes
+    scheduler type from ``noamlr`` to ``warmuplr``, the bundle's
+    ``scheduler_conf`` keys (e.g. ``model_size``) become invalid for the new
+    scheduler.
     """
     with open(bundle_config_path) as fh:
         cfg = yaml.safe_load(fh)
@@ -128,6 +136,16 @@ def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
     dropped_distributed = [k for k in _DISTRIBUTED_MODE_KEYS if k in cfg]
     for key in dropped_distributed:
         cfg.pop(key)
+    applied_overrides = {}
+    for key, value in ft_overrides.items():
+        if key == "optim_conf" and isinstance(value, dict):
+            existing = dict(cfg.get("optim_conf") or {})
+            existing.update(value)
+            cfg["optim_conf"] = existing
+            applied_overrides[key] = existing
+        else:
+            cfg[key] = value
+            applied_overrides[key] = value
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as fh:
         yaml.safe_dump(cfg, fh, sort_keys=False)
@@ -139,6 +157,8 @@ def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
     if dropped_distributed:
         print(f"[espnet_ft] patched train config: dropped {len(dropped_distributed)} "
               f"distributed-mode keys (single-GPU driver) {dropped_distributed}")
+    if applied_overrides:
+        print(f"[espnet_ft] patched train config: applied FT overrides {applied_overrides}")
     return out_path
 
 
@@ -165,8 +185,30 @@ def _write_shape_file(data_dir: Path, out_path: Path) -> None:
     out_path.write_text("".join(lines))
 
 
+def _build_ft_overrides(cfg: dict) -> dict:
+    """Pull the user's FT hyperparameters out of our YAML config and shape
+    them into a dict that ``_patch_pretrained_config`` can merge into the
+    bundle's training YAML.
+
+    We route hyperparameters through the YAML rather than CLI because
+    ESPnet's ``--optim_conf`` / ``--scheduler_conf`` CLI args don't type-
+    convert nested values in this version (``lr=1e-05`` would stay a string
+    and crash Adam's float bound check).
+    """
+    t = cfg.get("training", {})
+    return {
+        "max_epoch": int(t.get("max_epoch", 5)),
+        "batch_bins": int(t.get("batch_bins", 5_000_000)),
+        "num_workers": int(t.get("num_workers", 4)),
+        "log_interval": int(t.get("log_interval", 50)),
+        "seed": int(cfg.get("seed", 0)),
+        "optim_conf": dict(t.get("optim_conf", {"lr": 1e-5})),
+        "scheduler": t.get("scheduler", "warmuplr"),
+        "scheduler_conf": dict(t.get("scheduler_conf", {"warmup_steps": 500})),
+    }
+
+
 def _build_asr_train_command(
-    cfg: dict,
     bundle: dict,
     train_dir: Path,
     valid_dir: Path,
@@ -176,13 +218,12 @@ def _build_asr_train_command(
 ) -> list[str]:
     """Construct the espnet2.bin.asr_train command line for continued FT.
 
-    The pretrained bundle's training config carries the encoder/decoder
-    architecture; we layer our own optimizer/scheduler/step settings on top
-    via CLI overrides. ``--init_param`` initializes the trainable model from
-    the bundle's checkpoint -- this is what makes this a *continued*
-    fine-tune rather than a from-scratch run.
+    Hyperparameters (optim_conf, scheduler*, max_epoch, etc.) are pre-baked
+    into the patched YAML config -- see ``_patch_pretrained_config``. The
+    CLI only carries args that are environment-specific (data paths, output
+    dir, GPU count, distributed flags) or that argparse handles correctly
+    (these accept simple int/str values, no nested-dict broken-parser hazard).
     """
-    t = cfg.get("training", {})
     # NOTE on tokenizer assets: `token_list`, `token_type`, `bpemodel` are NOT
     # top-level bundle keys -- the ModelDownloader bundle only exposes
     # `asr_train_config` and `asr_model_file` (plus optional LM assets).
@@ -201,16 +242,6 @@ def _build_asr_train_command(
         "--valid_data_path_and_name_and_type", f"{valid_dir/'text'},text,text",
         "--train_shape_file", str(train_shape),
         "--valid_shape_file", str(valid_shape),
-        # FT recipe overrides (mirrors our Whisper / wav2vec 2.0 settings).
-        "--max_epoch", str(t.get("max_epoch", 5)),
-        "--batch_bins", str(t.get("batch_bins", 5_000_000)),
-        "--optim_conf", f"lr={t.get('optim_conf', {}).get('lr', 1e-5)}",
-        "--scheduler", t.get("scheduler", "warmuplr"),
-        "--scheduler_conf",
-        f"warmup_steps={t.get('scheduler_conf', {}).get('warmup_steps', 500)}",
-        "--log_interval", str(t.get("log_interval", 50)),
-        "--num_workers", str(t.get("num_workers", 4)),
-        "--seed", str(cfg.get("seed", 0)),
         # GPU handling: ESPnet's asr_train defaults ngpu=1 if CUDA is available.
         "--ngpu", "1" if _cuda_available() else "0",
         # Force single-process / non-distributed regardless of what the
@@ -269,12 +300,14 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = _load_pretrained_bundle(cfg["model_id"])
 
-    # Patch the bundle's training config to strip top-level keys the locally-
-    # installed ESPnet no longer recognizes (e.g. legacy `distributed` block).
-    # The patched config goes in output_dir to keep the original bundle
-    # untouched and to make the patched-vs-original delta inspectable.
+    # Patch the bundle's training config: strip version-drift keys, strip
+    # distributed-mode keys (single-GPU driver), and bake our FT hyperparams
+    # in via YAML rather than relying on broken CLI nested-dict parsing.
     patched_train_config = output_dir / "patched_train_config.yaml"
-    _patch_pretrained_config(bundle["asr_train_config"], patched_train_config)
+    ft_overrides = _build_ft_overrides(cfg)
+    _patch_pretrained_config(
+        bundle["asr_train_config"], patched_train_config, ft_overrides
+    )
     bundle = dict(bundle)  # don't mutate the cached bundle dict
     bundle["asr_train_config"] = str(patched_train_config)
 
@@ -287,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         _write_shape_file(valid_dir, valid_shape)
 
     cmd = _build_asr_train_command(
-        cfg, bundle, train_dir, valid_dir, train_shape, valid_shape, output_dir
+        bundle, train_dir, valid_dir, train_shape, valid_shape, output_dir
     )
 
     print("\n[espnet_ft] command to invoke:")
