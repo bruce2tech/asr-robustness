@@ -291,19 +291,16 @@ def _build_asr_train_command(
         "--config", bundle["asr_train_config"],
         "--init_param", bundle["asr_model_file"],
         "--output_dir", str(output_dir),
-        # Training and validation data (Kaldi style, "path,name,type" triplets).
-        "--train_data_path_and_name_and_type", f"{train_dir/'wav.scp'},speech,sound",
-        "--train_data_path_and_name_and_type", f"{train_dir/'text'},text,text",
-        "--valid_data_path_and_name_and_type", f"{valid_dir/'wav.scp'},speech,sound",
-        "--valid_data_path_and_name_and_type", f"{valid_dir/'text'},text,text",
-        # NOTE: --train_shape_file / --valid_shape_file deliberately omitted.
-        # ESPnet's argparse uses action='append' on these, so CLI values get
-        # CONCATENATED with the bundle YAML's list rather than replacing it,
-        # and we'd end up trying to load the bundle's stale
-        # 'exp/asr_stats_raw_en_bpe5000_sp/.../speech_shape' paths. Instead
-        # we inject the shape file paths INTO the patched YAML (which
-        # _patch_pretrained_config rewrites wholesale), so the merged list
-        # contains only our paths.
+        # NOTE: --train_data_path_and_name_and_type / --valid_data_path_and_name_and_type
+        # and --train_shape_file / --valid_shape_file all deliberately omitted
+        # from the CLI. ESPnet's argparse uses action='append' on every list-
+        # typed arg, so any value we pass on CLI is CONCATENATED with whatever
+        # is in the bundle's YAML rather than replacing it. The bundle ships
+        # paths from its original 960h training tree
+        # ('dump/raw/train_960_sp/wav.scp', 'exp/asr_stats_raw_en_bpe5000_sp/.../speech_shape')
+        # which don't exist on the FT pod. We inject our paths into the
+        # patched YAML instead (_patch_pretrained_config rewrites the YAML
+        # wholesale), so the merged list contains only our paths.
         # GPU handling: ESPnet's asr_train defaults ngpu=1 if CUDA is available.
         "--ngpu", "1" if _cuda_available() else "0",
         # Force single-process / non-distributed regardless of what the
@@ -390,6 +387,18 @@ def main(argv: list[str] | None = None) -> int:
     # would only append, so YAML rewrite is the only way to swap them out).
     patched_train_config = output_dir / "patched_train_config.yaml"
     ft_overrides = _build_ft_overrides(cfg)
+    # Data paths -- nested-list format that matches how ESPnet parses these
+    # from YAML (each row is [path, name, type]). REPLACE rather than append,
+    # since the bundle's YAML lists point at 'dump/raw/train_960_sp/...' from
+    # the original training tree.
+    ft_overrides["train_data_path_and_name_and_type"] = [
+        [str(train_dir / "wav.scp"), "speech", "sound"],
+        [str(train_dir / "text"), "text", "text"],
+    ]
+    ft_overrides["valid_data_path_and_name_and_type"] = [
+        [str(valid_dir / "wav.scp"), "speech", "sound"],
+        [str(valid_dir / "text"), "text", "text"],
+    ]
     ft_overrides["train_shape_file"] = [
         str(train_speech_shape), str(train_text_shape)
     ]
