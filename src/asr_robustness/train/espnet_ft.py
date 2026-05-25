@@ -79,35 +79,66 @@ def _valid_asr_train_keys() -> set[str]:
     return {a.dest for a in parser._actions if a.dest and a.dest != "help"}
 
 
+# Keys in the pretrained bundle that describe its original multi-GPU
+# distributed training setup. They're valid asr_train args (so the unknown-key
+# filter doesn't catch them), but they carry the bundle's 8-GPU world size
+# into our single-GPU FT run -- asr_train then sits in init_process_group
+# waiting for 7 phantom workers and times out after 10 minutes. This driver
+# is single-GPU by design, so we always strip these and let asr_train fall
+# back to non-distributed defaults.
+_DISTRIBUTED_MODE_KEYS = (
+    "multiprocessing_distributed",
+    "dist_world_size",
+    "dist_rank",
+    "dist_init_method",
+    "dist_backend",
+    "dist_master_addr",
+    "dist_master_port",
+    "dist_launcher",
+    "sharded_ddp",
+)
+
+
 def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
-    """Write a patched copy of the bundle's training config, with any
-    top-level keys that the locally-installed ESPnet no longer recognizes
-    removed.
+    """Write a patched copy of the bundle's training config, with two classes
+    of top-level key removed: (a) keys the locally-installed ESPnet no longer
+    recognizes, and (b) distributed-training keys carrying the bundle's
+    original 8-GPU world size into our single-GPU run.
 
     The pretrained ASR bundle was serialized by the ESPnet version that
     trained it. If the version on the pod has drifted, top-level keys it no
     longer accepts cause ``asr_train`` to abort with "unrecognized arguments:
     <key>" before training begins. Rather than hard-coding a whack-a-mole
-    list of legacy keys, this function asks the locally-installed
-    ``espnet2.bin.asr_train`` for its full set of accepted argument names and
-    drops every config key that isn't in that set. A single config rewrite
-    handles arbitrary version drift (distributed, required, version,
-    whatever).
+    list of legacy keys, we ask the locally-installed ``espnet2.bin.asr_train``
+    for its full set of accepted argument names and drop every config key
+    that isn't in that set.
+
+    Separately, the bundle's ``dist_world_size``, ``multiprocessing_distributed``,
+    etc. ARE valid asr_train args, so the unknown-key filter leaves them
+    alone -- but they're wrong for our single-GPU FT recipe and cause
+    init_process_group to hang waiting for the other 7 workers. We strip
+    those unconditionally and let asr_train use its non-distributed defaults.
     """
     with open(bundle_config_path) as fh:
         cfg = yaml.safe_load(fh)
     valid = _valid_asr_train_keys()
-    dropped = [k for k in list(cfg) if k not in valid]
-    for key in dropped:
+    dropped_unknown = [k for k in list(cfg) if k not in valid]
+    for key in dropped_unknown:
+        cfg.pop(key)
+    dropped_distributed = [k for k in _DISTRIBUTED_MODE_KEYS if k in cfg]
+    for key in dropped_distributed:
         cfg.pop(key)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as fh:
         yaml.safe_dump(cfg, fh, sort_keys=False)
-    if dropped:
-        print(f"[espnet_ft] patched train config: dropped {len(dropped)} unrecognized "
-              f"keys {dropped}")
+    if dropped_unknown:
+        print(f"[espnet_ft] patched train config: dropped {len(dropped_unknown)} unrecognized "
+              f"keys {dropped_unknown}")
     else:
         print("[espnet_ft] patched train config: no unrecognized keys to drop")
+    if dropped_distributed:
+        print(f"[espnet_ft] patched train config: dropped {len(dropped_distributed)} "
+              f"distributed-mode keys (single-GPU driver) {dropped_distributed}")
     return out_path
 
 
