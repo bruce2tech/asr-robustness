@@ -59,10 +59,24 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
 fi
 ffmpeg -version | head -1
 
-step "Creating Python venv and installing requirements"
-# We deliberately mirror the local Mac layout (venv at speech_recognition/) so
-# the existing Makefile targets `data-train`, `ft-clean`, `ft-mct` work
-# unchanged on the cloud box.
+step "Creating Python venv and installing PyTorch (CUDA-matched)"
+# Mirror the local Mac layout (venv at speech_recognition/) so the existing
+# Makefile targets work unchanged on the cloud box.
+#
+# Subtle but important: PyPI's default `pip install torch` wheel may target a
+# newer CUDA toolkit than the pod's NVIDIA driver supports, causing
+# "CUDA initialization: The NVIDIA driver on your system is too old" at
+# runtime. We install PyTorch FIRST from the cu121 wheel index (broad
+# compatibility -- works on any driver supporting CUDA 12.1+, which covers
+# all current RunPod GPU pods); the subsequent `make setup` then installs
+# the rest of requirements.txt without disturbing torch (torch>=2.2 is
+# satisfied so pip skips it).
+test -d speech_recognition || python3 -m venv speech_recognition
+speech_recognition/bin/pip install --upgrade pip
+speech_recognition/bin/pip install torch torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
+
+step "Installing the rest of the project dependencies"
 make setup
 
 step "Checking HuggingFace auth"
