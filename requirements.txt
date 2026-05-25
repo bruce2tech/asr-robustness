@@ -29,3 +29,4 @@ evaluate>=0.4
 # --- ESPnet (Phase 4; pretrained-model inference only) ---
 espnet>=202402
 espnet_model_zoo>=0.1.7
+tensorboard>=2.14            # ESPnet's training loop logs via tensorboard; not a hard espnet dep
