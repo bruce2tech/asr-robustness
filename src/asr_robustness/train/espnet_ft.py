@@ -213,6 +213,15 @@ def _build_asr_train_command(
         "--seed", str(cfg.get("seed", 0)),
         # GPU handling: ESPnet's asr_train defaults ngpu=1 if CUDA is available.
         "--ngpu", "1" if _cuda_available() else "0",
+        # Force single-process / non-distributed regardless of what the
+        # pretrained bundle's config says. The bundle was trained with
+        # world_size=8; without these overrides, asr_train sits in
+        # init_process_group waiting 10 min for 7 phantom workers on our
+        # single-GPU pod. CLI args override YAML config values in argparse,
+        # so this is robust to whatever the bundle config carries.
+        "--multiprocessing_distributed", "false",
+        "--dist_world_size", "1",
+        "--dist_rank", "0",
     ]
     return cmd
 
