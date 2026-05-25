@@ -123,6 +123,13 @@ def main(argv: list[str] | None = None) -> int:
     # top of the raw waveform) is normally frozen so we don't disturb the
     # SSL-pretrained low-level representation -- this is the canonical recipe.
     model.freeze_feature_encoder()
+    # Disable SpecAugment for fine-tuning. The wav2vec2-*-960h checkpoints
+    # don't ship a learned `masked_spec_embed` (it's used only at train
+    # time, so it's stripped from the inference checkpoint); a randomly-
+    # initialized one produces large activations that destabilize training.
+    # Our MCT pipeline IS the augmentation regime here -- we don't need
+    # SpecAugment on top.
+    model.config.apply_spec_augment = False
 
     pipeline, conditions = _build_pipeline(cfg.get("augmentation"))
     train_ds = Wav2Vec2FTDataset(

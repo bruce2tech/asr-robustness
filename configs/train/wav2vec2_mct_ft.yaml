@@ -74,11 +74,13 @@ training:
   warmup_steps: 500
   max_steps: 4000
   gradient_checkpointing: false
-  # See wav2vec2_clean_ft.yaml for the rationale -- wav2vec 2.0 + CTC needs
-  # fp16, not bf16, to keep the CTC loss numerically stable.
+  # fp32 for the same stability reasons as wav2vec2_clean_ft.yaml -- see
+  # that file's training-section comment for the full diagnosis. bf16 and
+  # fp16 both fail with wav2vec2-large + CTC + the newly-initialized
+  # masked_spec_embed.
   bf16: false
-  fp16: true
-  max_grad_norm: 0.5
+  fp16: false
+  max_grad_norm: 1.0
   eval_steps: 1000
   save_steps: 1000
   save_total_limit: 2

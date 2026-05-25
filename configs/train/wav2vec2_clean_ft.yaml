@@ -33,15 +33,21 @@ training:
   warmup_steps: 500
   max_steps: 4000                    # ~5 epochs over train-clean-100
   gradient_checkpointing: false      # L40S 48GB has the headroom
-  # wav2vec 2.0 + CTC fine-tuning is canonically done in fp16, not bf16.
-  # bf16 can NaN out the CTC loss because CTC computes log(sum(products of
-  # small probabilities)), and bf16's reduced mantissa underflows there.
-  # The HF/original-paper wav2vec 2.0 FT recipe is fp16; Whisper's seq2seq
-  # cross-entropy is bf16-stable -- this is one of those precision-vs-recipe
-  # differences forced by the architectural choice.
+  # Precision: fp32. Both bf16 and fp16 caused training divergence to NaN
+  # gradients within a few hundred steps with wav2vec2-large + CTC.
+  # Diagnosis chain:
+  #   * bf16 attempt: eval_loss=nan, eval_wer=1.0 by step 1000. CTC's
+  #     log(sum(products)) math underflows in bf16's reduced mantissa.
+  #   * fp16 attempt: grad_norm=nan from step ~50, scheduler stuck at
+  #     warmup-step-0 (lr=0), model never updates, eval at step 1000 just
+  #     returns off-the-shelf WER. The fp16 grad scaler was skipping every
+  #     optimizer step due to gradient overflow at the randomly-initialized
+  #     masked_spec_embed.
+  # fp32 eliminates both failure modes -- ~2x slower per step on L40S but
+  # plenty of VRAM headroom and the training actually progresses.
   bf16: false
-  fp16: true
-  max_grad_norm: 0.5                 # tighter clip for extra stability with fp16
+  fp16: false
+  max_grad_norm: 1.0                 # default; fp32 doesn't need tight clipping
   eval_steps: 1000
   save_steps: 1000
   save_total_limit: 2
