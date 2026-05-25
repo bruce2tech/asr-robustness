@@ -60,34 +60,54 @@ def _load_pretrained_bundle(model_id: str) -> dict:
     return bundle
 
 
-# Top-level keys in old ESPnet train configs that newer asr_train no longer
-# recognizes. Each entry was added the first time asr_train surfaced it via
-# "unrecognized arguments: <key>". The values these keys held are all either
-# irrelevant for our single-GPU continued-FT use case (distributed) or have
-# been folded into other config groups (none yet).
-_LEGACY_ESPNET_CONFIG_KEYS = ("distributed",)
+def _valid_asr_train_keys() -> set[str]:
+    """Return the set of top-level argument names ``espnet2.bin.asr_train`` accepts.
+
+    Used to filter unknown top-level keys out of the pretrained model's
+    training config before passing it to asr_train. We get this by asking the
+    ASRTask's argparse builder for the list of action destination names --
+    this is what asr_train internally cross-references each config key
+    against, so anything not in this set will be rejected as "unrecognized
+    arguments".
+
+    Importing ASRTask is slow (pulls in torch + the model graph code), so we
+    do it lazily inside this function rather than at module top level.
+    """
+    from espnet2.tasks.asr import ASRTask
+
+    parser = ASRTask.get_parser()
+    return {a.dest for a in parser._actions if a.dest and a.dest != "help"}
 
 
 def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
-    """Write a patched copy of the bundle's training config, with top-level
-    keys that the locally-installed ESPnet no longer recognizes removed.
+    """Write a patched copy of the bundle's training config, with any
+    top-level keys that the locally-installed ESPnet no longer recognizes
+    removed.
 
     The pretrained ASR bundle was serialized by the ESPnet version that
-    trained it. If the version on the pod has moved on, top-level keys it
-    no longer accepts cause ``asr_train`` to abort with
-    "unrecognized arguments: <key>" before training begins. This function
-    strips those known-stale keys and emits the patched config locally.
+    trained it. If the version on the pod has drifted, top-level keys it no
+    longer accepts cause ``asr_train`` to abort with "unrecognized arguments:
+    <key>" before training begins. Rather than hard-coding a whack-a-mole
+    list of legacy keys, this function asks the locally-installed
+    ``espnet2.bin.asr_train`` for its full set of accepted argument names and
+    drops every config key that isn't in that set. A single config rewrite
+    handles arbitrary version drift (distributed, required, version,
+    whatever).
     """
     with open(bundle_config_path) as fh:
         cfg = yaml.safe_load(fh)
-    dropped = [k for k in _LEGACY_ESPNET_CONFIG_KEYS if k in cfg]
-    for key in _LEGACY_ESPNET_CONFIG_KEYS:
-        cfg.pop(key, None)
+    valid = _valid_asr_train_keys()
+    dropped = [k for k in list(cfg) if k not in valid]
+    for key in dropped:
+        cfg.pop(key)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as fh:
         yaml.safe_dump(cfg, fh, sort_keys=False)
     if dropped:
-        print(f"[espnet_ft] patched train config: dropped legacy keys {dropped}")
+        print(f"[espnet_ft] patched train config: dropped {len(dropped)} unrecognized "
+              f"keys {dropped}")
+    else:
+        print("[espnet_ft] patched train config: no unrecognized keys to drop")
     return out_path
 
 
