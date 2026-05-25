@@ -151,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup_steps=t.get("warmup_steps", 500),
         max_steps=t.get("max_steps", 4000),
         gradient_checkpointing=t.get("gradient_checkpointing", False),
+        max_grad_norm=t.get("max_grad_norm", 1.0),
         fp16=use_fp16,
         bf16=use_bf16,
         eval_strategy="steps" if eval_ds is not None else "no",

@@ -33,8 +33,15 @@ training:
   warmup_steps: 500
   max_steps: 4000                    # ~5 epochs over train-clean-100
   gradient_checkpointing: false      # L40S 48GB has the headroom
-  bf16: true
-  fp16: false
+  # wav2vec 2.0 + CTC fine-tuning is canonically done in fp16, not bf16.
+  # bf16 can NaN out the CTC loss because CTC computes log(sum(products of
+  # small probabilities)), and bf16's reduced mantissa underflows there.
+  # The HF/original-paper wav2vec 2.0 FT recipe is fp16; Whisper's seq2seq
+  # cross-entropy is bf16-stable -- this is one of those precision-vs-recipe
+  # differences forced by the architectural choice.
+  bf16: false
+  fp16: true
+  max_grad_norm: 0.5                 # tighter clip for extra stability with fp16
   eval_steps: 1000
   save_steps: 1000
   save_total_limit: 2

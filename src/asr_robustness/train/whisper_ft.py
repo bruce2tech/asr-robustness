@@ -150,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup_steps=train_args_cfg.get("warmup_steps", 500),
         max_steps=train_args_cfg.get("max_steps", 4000),
         gradient_checkpointing=train_args_cfg.get("gradient_checkpointing", True),
+        max_grad_norm=train_args_cfg.get("max_grad_norm", 1.0),
         fp16=use_fp16,
         bf16=use_bf16,
         predict_with_generate=True,
