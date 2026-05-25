@@ -109,7 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     processor = prepare_processor(
         WhisperProcessor.from_pretrained(model_id), language=language, task=task
     )
-    model = WhisperForConditionalGeneration.from_pretrained(model_id)
+    # use_safetensors=True forces the safe .safetensors weight file rather
+    # than legacy pytorch_model.bin. transformers blocks .bin loading on
+    # torch<2.6 due to CVE-2025-32434; safetensors loading is unaffected.
+    model = WhisperForConditionalGeneration.from_pretrained(model_id, use_safetensors=True)
     # During training, let the model insert language/task tokens itself.
     model.generation_config.language = language
     model.generation_config.task = task

@@ -115,7 +115,10 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = cfg["output_dir"]
 
     processor = Wav2Vec2Processor.from_pretrained(model_id)
-    model = Wav2Vec2ForCTC.from_pretrained(model_id)
+    # use_safetensors=True forces the safe .safetensors weight file rather
+    # than legacy pytorch_model.bin. transformers blocks .bin loading on
+    # torch<2.6 due to CVE-2025-32434; safetensors loading is unaffected.
+    model = Wav2Vec2ForCTC.from_pretrained(model_id, use_safetensors=True)
     # During continued fine-tuning the feature extractor (the conv stack on
     # top of the raw waveform) is normally frozen so we don't disturb the
     # SSL-pretrained low-level representation -- this is the canonical recipe.
