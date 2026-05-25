@@ -60,6 +60,37 @@ def _load_pretrained_bundle(model_id: str) -> dict:
     return bundle
 
 
+# Top-level keys in old ESPnet train configs that newer asr_train no longer
+# recognizes. Each entry was added the first time asr_train surfaced it via
+# "unrecognized arguments: <key>". The values these keys held are all either
+# irrelevant for our single-GPU continued-FT use case (distributed) or have
+# been folded into other config groups (none yet).
+_LEGACY_ESPNET_CONFIG_KEYS = ("distributed",)
+
+
+def _patch_pretrained_config(bundle_config_path: str, out_path: Path) -> Path:
+    """Write a patched copy of the bundle's training config, with top-level
+    keys that the locally-installed ESPnet no longer recognizes removed.
+
+    The pretrained ASR bundle was serialized by the ESPnet version that
+    trained it. If the version on the pod has moved on, top-level keys it
+    no longer accepts cause ``asr_train`` to abort with
+    "unrecognized arguments: <key>" before training begins. This function
+    strips those known-stale keys and emits the patched config locally.
+    """
+    with open(bundle_config_path) as fh:
+        cfg = yaml.safe_load(fh)
+    dropped = [k for k in _LEGACY_ESPNET_CONFIG_KEYS if k in cfg]
+    for key in _LEGACY_ESPNET_CONFIG_KEYS:
+        cfg.pop(key, None)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as fh:
+        yaml.safe_dump(cfg, fh, sort_keys=False)
+    if dropped:
+        print(f"[espnet_ft] patched train config: dropped legacy keys {dropped}")
+    return out_path
+
+
 def _write_shape_file(data_dir: Path, out_path: Path) -> None:
     """Write a Kaldi-style 'utt_id num_samples' shape file from wav.scp.
 
@@ -177,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
     _validate_data_dir(valid_dir)
 
     bundle = _load_pretrained_bundle(cfg["model_id"])
+
+    # Patch the bundle's training config to strip top-level keys the locally-
+    # installed ESPnet no longer recognizes (e.g. legacy `distributed` block).
+    # The patched config goes in output_dir to keep the original bundle
+    # untouched and to make the patched-vs-original delta inspectable.
+    patched_train_config = output_dir / "patched_train_config.yaml"
+    _patch_pretrained_config(bundle["asr_train_config"], patched_train_config)
+    bundle = dict(bundle)  # don't mutate the cached bundle dict
+    bundle["asr_train_config"] = str(patched_train_config)
 
     # Shape files needed by ESPnet's bucketing dataloader.
     train_shape = output_dir / "train_shape.scp"
