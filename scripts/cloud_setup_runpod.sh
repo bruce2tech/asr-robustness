@@ -109,6 +109,12 @@ step "Downloading training data (~19 GB)"
 # test-clean / test-other / train-clean-360 -- those are only needed for the
 # *local* ft-eval step that runs on the Mac after training.
 make data-train
+# Drop the compressed archives now that extraction is complete -- they
+# duplicate the extracted data and double the volume footprint to ~43 GB
+# (we hit the 60 GB volume cap on the first wav2vec2-large FT run because
+# of this). Re-runs of data-train fetch only what's missing, so deleting
+# _archives/ is safe.
+rm -rf data/_archives
 
 step "Building manifests"
 speech_recognition/bin/python -m asr_robustness.data.manifest --split train-clean-100
