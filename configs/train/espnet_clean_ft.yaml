@@ -1,0 +1,51 @@
+# Phase 6 ESPnet ablation A: clean fine-tune of asapp/e_branchformer_librispeech
+# on LibriSpeech train-clean-100. Within-architecture baseline that the MCT
+# variant has to beat under degradation. Same hyperparameters as the
+# Whisper / wav2vec 2.0 clean-FT runs *wherever the recipe permits*.
+#
+# Path: Path II (native ESPnet recipe with pre-rendered audio on disk).
+# `espnet_render_data.py --mode clean` first renders the un-degraded training
+# audio into the data_dir below (one WAV per utt at 16 kHz mono), plus the
+# Kaldi-style wav.scp/text/utt2spk/spk2utt files ESPnet expects. The driver
+# (espnet_ft.py) then invokes espnet2.bin.asr_train with --init_param pointing
+# at the downloaded pretrained checkpoint.
+#
+# Cross-architecture confound notes (see configs/train/wav2vec2_mct_ft.yaml
+# header for the full discussion):
+#   * Matched: training corpus, condition distribution (N/A here -- clean
+#     baseline), learning rate, max steps, seed.
+#   * Architecturally forced to differ: encoder/decoder design, attention
+#     mechanism, BPE vocab size (~5k vs 50k vs 32 -- see REPORT.md §3.2).
+#   * Size confound: asapp's E-Branchformer is ~95M params vs whisper-small
+#     244M and wav2vec 2.0-large 315M. Smaller than the others by ~2-3x;
+#     this remains an unaddressed confound for v1.0. v1.x roadmap may switch
+#     to a larger pretrained ESPnet model if HF Hub has one in the ~250M range
+#     that loads cleanly on Apple Silicon.
+
+# The pretrained model from the pilot. The driver downloads via
+# espnet_model_zoo (HF Hub-backed) and points --init_param at the resulting
+# checkpoint.
+model_id: asapp/e_branchformer_librispeech
+
+# Pre-rendered training data (run espnet_render_data.py first to populate).
+# The Kaldi-style wav.scp/text/utt2spk/spk2utt live alongside wav/.
+train_data_dir: data/espnet/train-clean-100-clean
+eval_data_dir:  data/espnet/dev-clean-clean
+eval_limit: 200           # match the Whisper / wav2vec 2.0 setups
+
+output_dir: results/checkpoints/espnet-ebranchformer-clean-ft
+seed: 0
+
+training:
+  # NOTE: ESPnet's training config keys mirror espnet2.bin.asr_train; the
+  # driver translates this block into a YAML overlay passed to that CLI.
+  batch_bins: 5000000            # batch sized by # tokens, ESPnet convention
+  max_epoch: 5                   # matches ~4000 steps over train-clean-100
+  optim_conf:
+    lr: 1.0e-5                   # matches whisper/wav2vec2 clean-FT
+  scheduler: warmuplr
+  scheduler_conf:
+    warmup_steps: 500
+  log_interval: 50
+  save_steps: 1000
+  num_workers: 4

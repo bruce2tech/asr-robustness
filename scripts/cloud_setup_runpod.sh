@@ -49,32 +49,58 @@ if [ ! -f pyproject.toml ] || [ ! -d src/asr_robustness ]; then
     fail "Run this from the repo root (the directory containing pyproject.toml)."
 fi
 
-step "Installing system dependencies (ffmpeg)"
-# RunPod's PyTorch image has git + python + torch; we still need ffmpeg for the
-# codec degradations (G.726, G.722, Opus round-trips in `make data-train` and
-# in the augmentation pipeline).
-if ! command -v ffmpeg >/dev/null 2>&1; then
+step "Installing system dependencies (ffmpeg, tmux, rsync)"
+# RunPod's PyTorch image has git + python + torch; we still need:
+#   - ffmpeg for codec degradations (G.726, G.722, Opus in the harness)
+#   - tmux so training survives SSH disconnects (long FT runs span ~5 h)
+#   - rsync so the user can `rsync` checkpoints back to their Mac without
+#     installing rsync mid-session (which is what we ended up doing on the
+#     wav2vec 2.0 pod -- the install on-demand cost ~5 min of fumbling)
+NEED_PKGS=""
+for pkg in ffmpeg tmux rsync; do
+    command -v "$pkg" >/dev/null 2>&1 || NEED_PKGS="$NEED_PKGS $pkg"
+done
+if [ -n "$NEED_PKGS" ]; then
     apt-get update -qq
-    apt-get install -y -qq ffmpeg
+    apt-get install -y -qq $NEED_PKGS
 fi
 ffmpeg -version | head -1
+tmux -V
 
-step "Creating Python venv and installing PyTorch (CUDA-matched)"
+step "Pre-flight: GPU is unclaimed by zombie processes"
+# A previous run may have left a Python process holding GPU memory after an
+# abnormal exit (Ctrl-C mid-batch, SSH-drop SIGHUP). Kill any orphans before
+# we try to allocate, otherwise the new run hits OutOfMemoryError immediately.
+pkill -9 -f "asr_robustness.train" 2>/dev/null || true
+pkill -9 -f "espnet2.bin.asr_train" 2>/dev/null || true
+sleep 1
+GPU_USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -n1)
+echo "GPU memory currently in use: ${GPU_USED} MiB (expect <100 after orphan cleanup)"
+
+step "Creating Python venv and installing PyTorch (CUDA-matched, torch >= 2.6)"
 # Mirror the local Mac layout (venv at speech_recognition/) so the existing
 # Makefile targets work unchanged on the cloud box.
 #
-# Subtle but important: PyPI's default `pip install torch` wheel may target a
-# newer CUDA toolkit than the pod's NVIDIA driver supports, causing
-# "CUDA initialization: The NVIDIA driver on your system is too old" at
-# runtime. We install PyTorch FIRST from the cu121 wheel index (broad
-# compatibility -- works on any driver supporting CUDA 12.1+, which covers
-# all current RunPod GPU pods); the subsequent `make setup` then installs
-# the rest of requirements.txt without disturbing torch (torch>=2.2 is
-# satisfied so pip skips it).
+# Two requirements jointly constrain the PyTorch install:
+#
+# 1. The wheel's compiled CUDA toolkit must match the pod's driver. PyPI's
+#    default torch wheel may target a newer CUDA than the driver supports,
+#    triggering "The NVIDIA driver on your system is too old" at runtime.
+#
+# 2. torch must be >= 2.6 to avoid CVE-2025-32434 blocking `torch.load`.
+#    transformers refuses to load legacy `pytorch_model.bin` checkpoints on
+#    older torch, and -- worse -- refuses to resume from `optimizer.pt`
+#    state files (which have no safetensors equivalent). On the wav2vec 2.0
+#    pod we hit this twice and had to restart training from step 0 because
+#    the optimizer state was unloadable.
+#
+# Both requirements are met by the cu124 wheels of torch >= 2.6: they target
+# CUDA 12.4 (works on any driver supporting CUDA 12.4+, including all current
+# RunPod L40S/A100/H100 templates) and include the CVE-2025-32434 fix.
 test -d speech_recognition || python3 -m venv speech_recognition
 speech_recognition/bin/pip install --upgrade pip
-speech_recognition/bin/pip install torch torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121
+speech_recognition/bin/pip install "torch>=2.6" torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124
 
 step "Installing the rest of the project dependencies"
 make setup

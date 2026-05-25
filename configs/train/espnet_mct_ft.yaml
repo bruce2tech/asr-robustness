@@ -1,0 +1,45 @@
+# Phase 6 ESPnet ablation B: multi-condition fine-tune of the same pretrained
+# E-Branchformer. Identical hyperparameters to espnet_clean_ft.yaml; the *only*
+# difference within the ESPnet arm is that the training data is the
+# pre-rendered MCT set (one degraded WAV per training utt, condition sampled
+# from configs/train/espnet_mct_conditions.yaml).
+#
+# The data_dir below MUST be populated by:
+#   python -m asr_robustness.train.espnet_render_data \
+#       --manifest manifests/librispeech_train-clean-100.jsonl \
+#       --out-dir  data/espnet/train-clean-100-mct \
+#       --mode mct \
+#       --conditions configs/train/espnet_mct_conditions.yaml \
+#       --noise-bank data/musan \
+#       --rir-bank data/RIRS_NOISES/simulated_rirs \
+#       --seed-base 0
+#
+# That step is run before training, NOT during, because ESPnet's data loader
+# doesn't have an in-memory augmentation hook that fits our DegradationPipeline.
+# Renders ~28k utterances, ~25 GB on disk (one realization per utt). The
+# rendering is seed-deterministic so the same training set is reproducible.
+#
+# See configs/train/wav2vec2_mct_ft.yaml header for the full cross-architecture
+# confound discussion.
+
+model_id: asapp/e_branchformer_librispeech
+
+# Pre-rendered MCT training data (run espnet_render_data.py --mode mct first).
+train_data_dir: data/espnet/train-clean-100-mct
+eval_data_dir:  data/espnet/dev-clean-clean    # eval intentionally on clean
+eval_limit: 200
+
+output_dir: results/checkpoints/espnet-ebranchformer-mct-ft
+seed: 0
+
+training:
+  batch_bins: 5000000
+  max_epoch: 5
+  optim_conf:
+    lr: 1.0e-5
+  scheduler: warmuplr
+  scheduler_conf:
+    warmup_steps: 500
+  log_interval: 50
+  save_steps: 1000
+  num_workers: 4

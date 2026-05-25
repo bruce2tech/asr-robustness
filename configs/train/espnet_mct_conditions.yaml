@@ -1,0 +1,51 @@
+# Augmentation condition mix for the ESPnet MCT-FT data rendering.
+#
+# This list is the source of truth for `espnet_render_data.py --mode mct`:
+# each training utterance is rendered ONCE with one randomly-sampled condition
+# from this list (seeded for reproducibility). Unlike Whisper / wav2vec 2.0's
+# online HF-Trainer augmentation, ESPnet's native recipe needs the degraded
+# audio on disk -- so this list determines the exact training distribution.
+#
+# IDENTICAL to the condition mix in configs/train/mct_ft.yaml (Whisper MCT)
+# and configs/train/wav2vec2_mct_ft.yaml (wav2vec 2.0 MCT). Keeping the
+# training-condition distribution matched across architectures is the
+# precondition for the cross-architecture comparison being interpretable.
+
+conditions:
+  # Anchor: ~14% of the training mix is clean so MCT doesn't drift the model
+  # entirely toward augmentation regime (this is why MCT-FT preserves clean
+  # accuracy in the Whisper and wav2vec 2.0 ablation arms).
+  - clean
+  - clean
+  - clean
+
+  # Stationary noise across the SNR ladder (-10..20 dB).
+  - noise_20db
+  - noise_10db
+  - noise_5db
+  - noise_0db
+  - noise_-5db
+  - noise_-10db
+
+  # Multi-talker babble across the same ladder (separate failure mode --
+  # see REPORT.md §3.1: babble is ~10 dB harder than stationary noise at
+  # matched SNR).
+  - babble_20db
+  - babble_5db
+  - babble_0db
+  - babble_-5db
+  - babble_-10db
+
+  # Convolutive + narrowband + codec + packet loss -- one entry each so
+  # exposure to all degradation *families* is balanced. (Could weight up if
+  # we wanted to bias the training distribution.)
+  - reverb
+  - telephone
+  - codec_opus_6k
+  - packet_loss_30pct
+
+  # Compound operational scenarios at their severe variants.
+  - reverb_noise_5db
+  - cellphone_in_crowd_-5db
+  - far_field_surveillance_-5db
+  - walkie_talkie_0db

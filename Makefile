@@ -4,7 +4,7 @@
 PY := speech_recognition/bin/python
 PIP := speech_recognition/bin/pip
 
-.PHONY: help setup test lint data data-minimal data-train data-full manifests demo pilot decode sweep ft-clean ft-mct ft-eval report clean
+.PHONY: help setup test lint data data-minimal data-train data-full manifests demo pilot decode sweep ft-clean ft-mct ft-wav2vec2-clean ft-wav2vec2-mct prerender-espnet-train-clean prerender-espnet-train-mct prerender-espnet-dev ft-espnet-clean ft-espnet-mct ft-eval report clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -66,6 +66,29 @@ ft-wav2vec2-clean:  ## Phase 6: fine-tune wav2vec2-base on clean train-clean-100
 
 ft-wav2vec2-mct:  ## Phase 6: fine-tune wav2vec2-base with multi-condition augmentation
 	$(PY) -m asr_robustness.train.wav2vec2_ft --config configs/train/wav2vec2_mct_ft.yaml
+
+prerender-espnet-train-clean:  ## Phase 6 ESPnet: render clean train-clean-100 to ESPnet Kaldi-style layout
+	$(PY) -m asr_robustness.train.espnet_render_data \
+		--manifest manifests/librispeech_train-clean-100.jsonl \
+		--out-dir data/espnet/train-clean-100-clean --mode clean
+
+prerender-espnet-train-mct:  ## Phase 6 ESPnet: render MCT train-clean-100 (~25 GB of degraded WAVs)
+	$(PY) -m asr_robustness.train.espnet_render_data \
+		--manifest manifests/librispeech_train-clean-100.jsonl \
+		--out-dir data/espnet/train-clean-100-mct --mode mct \
+		--conditions configs/train/espnet_mct_conditions.yaml \
+		--noise-bank data/musan --rir-bank data/RIRS_NOISES/simulated_rirs
+
+prerender-espnet-dev:  ## Phase 6 ESPnet: render clean dev-clean for eval (shared by both ablation arms)
+	$(PY) -m asr_robustness.train.espnet_render_data \
+		--manifest manifests/librispeech_dev-clean.jsonl \
+		--out-dir data/espnet/dev-clean-clean --mode clean
+
+ft-espnet-clean:  ## Phase 6 ESPnet: fine-tune asapp/e_branchformer_librispeech on clean data
+	$(PY) -m asr_robustness.train.espnet_ft --config configs/train/espnet_clean_ft.yaml
+
+ft-espnet-mct:  ## Phase 6 ESPnet: fine-tune with multi-condition (pre-rendered) augmentation
+	$(PY) -m asr_robustness.train.espnet_ft --config configs/train/espnet_mct_ft.yaml
 
 ft-eval:  ## Phase 6: evaluate the off-the-shelf / clean-FT / MCT-FT checkpoints head-to-head
 	$(PY) -m asr_robustness.eval.run --config configs/experiments/ft_ablation.yaml
