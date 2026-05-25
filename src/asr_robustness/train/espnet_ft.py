@@ -162,12 +162,12 @@ def _patch_pretrained_config(
     return out_path
 
 
-def _write_shape_file(data_dir: Path, out_path: Path) -> None:
+def _write_speech_shape_file(data_dir: Path, out_path: Path) -> None:
     """Write a Kaldi-style 'utt_id num_samples' shape file from wav.scp.
 
-    ESPnet's bucketing data loader needs per-utt sample counts. Reading the
-    audio header via ``soundfile.info`` is fast (no full decode), so this is
-    O(N) in number of utts -- a few seconds for 28k utts.
+    ESPnet's bucketing data loader needs per-utt sample counts on the speech
+    side. Reading the audio header via ``soundfile.info`` is fast (no full
+    decode), so this is O(N) in number of utts -- a few seconds for 28k utts.
     """
     wav_scp = data_dir / "wav.scp"
     if not wav_scp.exists():
@@ -177,12 +177,70 @@ def _write_shape_file(data_dir: Path, out_path: Path) -> None:
     with open(wav_scp, encoding="utf-8") as fh:
         scp_entries = [line.rstrip("\n").split(" ", 1) for line in fh if line.strip()]
 
-    for utt_id, wav_path in tqdm(scp_entries, desc=f"shape({data_dir.name})"):
+    for utt_id, wav_path in tqdm(scp_entries, desc=f"speech_shape({data_dir.name})"):
         info = sf.info(wav_path)
         n_samples = int(info.frames)
         lines.append(f"{utt_id} {n_samples}\n")
 
     out_path.write_text("".join(lines))
+
+
+def _write_text_shape_file(
+    data_dir: Path, bpemodel_path: str, out_path: Path
+) -> None:
+    """Write a Kaldi-style 'utt_id num_bpe_tokens' shape file by tokenizing
+    each utt's text with the bundle's BPE model.
+
+    ESPnet pairs this with the speech-shape file: the bucketing dataloader
+    plans batches by the SUM of speech-frames + bpe-tokens (under
+    ``batch_type: numel``), so both files must exist and cover all utts.
+    Without this, asr_train looks for the original bundle's text_shape
+    (``exp/asr_stats_raw_en_bpe5000_sp/train/text_shape.bpe``) which isn't
+    on disk on the FT pod and FileNotFoundError-bails.
+    """
+    import sentencepiece as spm
+
+    sp = spm.SentencePieceProcessor()
+    sp.Load(bpemodel_path)
+
+    text_file = data_dir / "text"
+    if not text_file.exists():
+        raise FileNotFoundError(f"missing text in {data_dir}")
+
+    lines_out = []
+    with open(text_file, encoding="utf-8") as fh:
+        text_entries = [line.rstrip("\n") for line in fh if line.strip()]
+
+    for entry in tqdm(text_entries, desc=f"text_shape({data_dir.name})"):
+        parts = entry.split(" ", 1)
+        utt_id = parts[0]
+        text = parts[1] if len(parts) > 1 else ""
+        num_tokens = len(sp.encode(text, out_type=int))
+        lines_out.append(f"{utt_id} {num_tokens}\n")
+
+    out_path.write_text("".join(lines_out))
+
+
+def _resolve_bundle_bpemodel(bundle_config_path: str) -> str:
+    """Read the bundle's training YAML and return the absolute path to its
+    BPE model. ``ModelDownloader.download_and_unpack`` rewrites the paths
+    inside the YAML to absolute locations under the bundle's extraction dir,
+    so this resolves cleanly without us having to know where the bundle lives.
+    """
+    with open(bundle_config_path) as fh:
+        cfg = yaml.safe_load(fh)
+    bpemodel = cfg.get("bpemodel")
+    if not bpemodel:
+        raise RuntimeError(
+            "bundle's asr_train_config does not set 'bpemodel'. Either the "
+            "bundle uses a non-BPE tokenizer (token_type=char/word) or its "
+            "config is missing the field. Add a non-BPE codepath if needed."
+        )
+    if not Path(bpemodel).exists():
+        raise FileNotFoundError(
+            f"bpemodel path from bundle config does not exist: {bpemodel}"
+        )
+    return bpemodel
 
 
 def _build_ft_overrides(cfg: dict) -> dict:
@@ -212,8 +270,6 @@ def _build_asr_train_command(
     bundle: dict,
     train_dir: Path,
     valid_dir: Path,
-    train_shape: Path,
-    valid_shape: Path,
     output_dir: Path,
 ) -> list[str]:
     """Construct the espnet2.bin.asr_train command line for continued FT.
@@ -240,8 +296,14 @@ def _build_asr_train_command(
         "--train_data_path_and_name_and_type", f"{train_dir/'text'},text,text",
         "--valid_data_path_and_name_and_type", f"{valid_dir/'wav.scp'},speech,sound",
         "--valid_data_path_and_name_and_type", f"{valid_dir/'text'},text,text",
-        "--train_shape_file", str(train_shape),
-        "--valid_shape_file", str(valid_shape),
+        # NOTE: --train_shape_file / --valid_shape_file deliberately omitted.
+        # ESPnet's argparse uses action='append' on these, so CLI values get
+        # CONCATENATED with the bundle YAML's list rather than replacing it,
+        # and we'd end up trying to load the bundle's stale
+        # 'exp/asr_stats_raw_en_bpe5000_sp/.../speech_shape' paths. Instead
+        # we inject the shape file paths INTO the patched YAML (which
+        # _patch_pretrained_config rewrites wholesale), so the merged list
+        # contains only our paths.
         # GPU handling: ESPnet's asr_train defaults ngpu=1 if CUDA is available.
         "--ngpu", "1" if _cuda_available() else "0",
         # Force single-process / non-distributed regardless of what the
@@ -300,28 +362,47 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = _load_pretrained_bundle(cfg["model_id"])
 
+    # Resolve the bundle's BPE model so we can tokenize text for text_shape.
+    # Done before any heavy work so we fail fast if the bundle's tokenizer
+    # path can't be resolved.
+    bpemodel_path = _resolve_bundle_bpemodel(bundle["asr_train_config"])
+
+    # Shape files needed by ESPnet's bucketing dataloader (one per data
+    # field). Generated before the config patch so we can inject their paths
+    # into the patched YAML.
+    train_speech_shape = output_dir / "train_speech_shape.scp"
+    train_text_shape = output_dir / "train_text_shape.scp"
+    valid_speech_shape = output_dir / "valid_speech_shape.scp"
+    valid_text_shape = output_dir / "valid_text_shape.scp"
+    if not train_speech_shape.exists():
+        _write_speech_shape_file(train_dir, train_speech_shape)
+    if not train_text_shape.exists():
+        _write_text_shape_file(train_dir, bpemodel_path, train_text_shape)
+    if not valid_speech_shape.exists():
+        _write_speech_shape_file(valid_dir, valid_speech_shape)
+    if not valid_text_shape.exists():
+        _write_text_shape_file(valid_dir, bpemodel_path, valid_text_shape)
+
     # Patch the bundle's training config: strip version-drift keys, strip
-    # distributed-mode keys (single-GPU driver), and bake our FT hyperparams
-    # in via YAML rather than relying on broken CLI nested-dict parsing.
+    # distributed-mode keys (single-GPU driver), bake our FT hyperparams in
+    # via YAML rather than broken CLI nested-dict parsing, and REPLACE the
+    # bundle's stale shape-file list with our newly-generated paths (CLI
+    # would only append, so YAML rewrite is the only way to swap them out).
     patched_train_config = output_dir / "patched_train_config.yaml"
     ft_overrides = _build_ft_overrides(cfg)
+    ft_overrides["train_shape_file"] = [
+        str(train_speech_shape), str(train_text_shape)
+    ]
+    ft_overrides["valid_shape_file"] = [
+        str(valid_speech_shape), str(valid_text_shape)
+    ]
     _patch_pretrained_config(
         bundle["asr_train_config"], patched_train_config, ft_overrides
     )
     bundle = dict(bundle)  # don't mutate the cached bundle dict
     bundle["asr_train_config"] = str(patched_train_config)
 
-    # Shape files needed by ESPnet's bucketing dataloader.
-    train_shape = output_dir / "train_shape.scp"
-    valid_shape = output_dir / "valid_shape.scp"
-    if not train_shape.exists():
-        _write_shape_file(train_dir, train_shape)
-    if not valid_shape.exists():
-        _write_shape_file(valid_dir, valid_shape)
-
-    cmd = _build_asr_train_command(
-        bundle, train_dir, valid_dir, train_shape, valid_shape, output_dir
-    )
+    cmd = _build_asr_train_command(bundle, train_dir, valid_dir, output_dir)
 
     print("\n[espnet_ft] command to invoke:")
     for token in cmd:
