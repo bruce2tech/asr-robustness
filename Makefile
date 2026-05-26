@@ -4,7 +4,7 @@
 PY := speech_recognition/bin/python
 PIP := speech_recognition/bin/pip
 
-.PHONY: help setup test lint data data-minimal data-train data-full manifests demo pilot decode sweep ft-clean ft-mct ft-wav2vec2-clean ft-wav2vec2-mct prerender-espnet-train-clean prerender-espnet-train-mct prerender-espnet-dev ft-espnet-clean ft-espnet-mct ft-eval report clean
+.PHONY: help setup test lint data data-minimal data-train data-full manifests demo pilot decode sweep ft-clean ft-mct ft-wav2vec2-clean ft-wav2vec2-mct prerender-espnet-train-clean prerender-espnet-train-mct prerender-espnet-dev ft-espnet-clean ft-espnet-mct ft-eval report ft-report clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -93,8 +93,13 @@ ft-espnet-mct:  ## Phase 6 ESPnet: fine-tune with multi-condition (pre-rendered)
 ft-eval:  ## Phase 6: evaluate the off-the-shelf / clean-FT / MCT-FT checkpoints head-to-head
 	$(PY) -m asr_robustness.eval.run --config configs/experiments/ft_ablation.yaml
 
-report:  ## Build plots, tables, and the research report (Phase 8)
+report:  ## Build report (plots + tables + summary.md) from results/snr_sweep.jsonl
 	$(PY) -m asr_robustness.report.build
+
+ft-report:  ## Build report from the Phase 6 9-arm ablation (results/ft_ablation.jsonl -> reports/ft_ablation/)
+	$(PY) -m asr_robustness.report.build \
+		--results results/ft_ablation.jsonl \
+		--out reports/ft_ablation
 
 clean:  ## Remove caches and build artifacts (keeps data/ and results/)
 	rm -rf build dist *.egg-info .pytest_cache .ruff_cache
