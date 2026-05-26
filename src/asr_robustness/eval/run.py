@@ -45,6 +45,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run a decode experiment.")
     ap.add_argument("--config", required=True, help="experiment YAML config")
     ap.add_argument("--limit", type=int, help="override: decode only the first N utterances")
+    ap.add_argument(
+        "--models",
+        help=(
+            "comma-separated list of model NAMES from the YAML to run (others "
+            "are skipped). Lets you re-run a subset without editing the YAML, "
+            "e.g. after a single arm failed mid-loop."
+        ),
+    )
     args = ap.parse_args(argv)
 
     with open(args.config) as fh:
@@ -59,12 +67,23 @@ def main(argv: list[str] | None = None) -> int:
     conditions = cfg["conditions"]
     limit = args.limit if args.limit is not None else cfg.get("limit")
 
+    name_filter = set(s.strip() for s in args.models.split(",")) if args.models else None
+
+    out_path = Path(cfg["output"])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     all_results: list[dict] = []
     for spec in cfg["models"]:
+        if name_filter is not None and spec["name"] not in name_filter:
+            print(f"\n[{spec['name']}] skipped (--models filter)")
+            continue
         model_pkg.ensure_loaded(spec["key"])
-        kwargs = {"name": spec["name"]}
-        if "model_id" in spec:
-            kwargs["model_id"] = spec["model_id"]
+        # Pass through every YAML field EXCEPT the two run-level meta keys
+        # ('name' is the display label, 'key' is the registry key). Anything
+        # adapter-specific (model_id, base_model_id, device, beam_size, etc.)
+        # is forwarded verbatim. This means new adapter kwargs don't need a
+        # corresponding change to run.py.
+        kwargs = {k: v for k, v in spec.items() if k != "key"}
         model = model_pkg.create(spec["key"], **kwargs)
         print(f"\n[{spec['name']}] decoding {len(records[:limit] if limit else records)} "
               f"utterances x {len(conditions)} conditions ...")
@@ -73,9 +92,16 @@ def main(argv: list[str] | None = None) -> int:
             seed_base=cfg.get("seed_base", 0), limit=limit,
         )
         all_results.extend(results)
+        # Per-arm checkpoint: write this arm's rows to a side file as soon as
+        # it finishes, so if a later arm crashes (or the laptop is closed) we
+        # don't lose hours of decoding. The merge into the main output file
+        # still happens at the end -- the per-arm file is purely a safety net.
+        per_arm_path = out_path.with_name(f"{out_path.stem}__{spec['name']}.jsonl")
+        write_results(results, per_arm_path)
+        print(f"  -> per-arm checkpoint: {per_arm_path}")
         _print_summary(spec["name"], results, conditions)
 
-    out = write_results(all_results, cfg["output"])
+    out = write_results(all_results, out_path)
     print(f"\nwrote {len(all_results)} result rows -> {out}")
     return 0
 
