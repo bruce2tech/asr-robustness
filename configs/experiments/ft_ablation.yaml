@@ -1,9 +1,21 @@
-# Phase 6 ablation evaluation: WER-vs-SNR head-to-head over all three
-# checkpoints -- the off-the-shelf whisper-small baseline, the clean-FT
-# baseline, and the MCT fine-tune. The model entries point at local
-# checkpoint directories produced by `make ft-clean` / `make ft-mct`; the
-# WhisperModel adapter loads them through HuggingFace `from_pretrained`
-# transparently (it accepts local paths the same way it accepts model-hub IDs).
+# Phase 6 SYMMETRIC ablation evaluation: WER-vs-condition head-to-head over
+# the full 3 architectures x 3 variants = 9-cell grid. Each architecture
+# contributes off-the-shelf, clean-FT, and MCT-FT checkpoints, all evaluated
+# under the same condition list as the Phase 5 pilot.
+#
+# Why symmetric: cross-architecture WER differences confound MCT effect with
+# architecture choice. By keeping ALL three variants for ALL three architectures,
+# the MCT-vs-clean delta within each architecture is the unconfounded signal.
+# (Variants ARE NOT pooled across architectures -- the Whisper-MCT vs
+# wav2vec2-MCT comparison still has confounds; see REPORT.md for the full
+# discussion.)
+#
+# Local checkpoint loading:
+#   - Whisper / wav2vec2: HF `from_pretrained(local_path)` works transparently.
+#   - ESPnet: requires base_model_id (the hub tag the FT was initialized from)
+#     because the local config.yaml references pod-side tokenizer paths;
+#     the adapter swaps the bundle's weights for our local FT checkpoint
+#     while reusing the bundle's architecture and tokenizer.
 #
 # Run with:   python -m asr_robustness.eval.run --config configs/experiments/ft_ablation.yaml
 
@@ -29,13 +41,27 @@ noise_bank: data/musan
 rir_bank: data/RIRS_NOISES/simulated_rirs
 
 models:
-  # Off-the-shelf baseline -- the curve to beat under degradation.
-  - {name: whisper-small,         key: whisper, model_id: openai/whisper-small}
-  # Clean fine-tune -- isolates "does in-domain FT alone help on degraded audio?"
-  - {name: whisper-small-clean-ft, key: whisper, model_id: results/checkpoints/whisper-small-clean-ft}
-  # Multi-condition FT -- the experimental arm. The hypothesis is that this
-  # curve sits below the other two across the SNR ladder.
-  - {name: whisper-small-mct-ft,   key: whisper, model_id: results/checkpoints/whisper-small-mct-ft}
+  # === Whisper-small arm (HF Transformers; encoder-decoder; ~50k token vocab) ===
+  - {name: whisper-small,           key: whisper,  model_id: openai/whisper-small}
+  - {name: whisper-small-clean-ft,  key: whisper,  model_id: results/checkpoints/whisper-small-clean-ft}
+  - {name: whisper-small-mct-ft,    key: whisper,  model_id: results/checkpoints/whisper-small-mct-ft}
+
+  # === wav2vec2-large arm (HF Transformers; CTC encoder-only; 32-char vocab) ===
+  - {name: wav2vec2-large,          key: wav2vec2, model_id: facebook/wav2vec2-large-960h}
+  - {name: wav2vec2-large-clean-ft, key: wav2vec2, model_id: results/checkpoints/wav2vec2-large-clean-ft}
+  - {name: wav2vec2-large-mct-ft,   key: wav2vec2, model_id: results/checkpoints/wav2vec2-large-mct-ft}
+
+  # === ESPnet E-Branchformer arm (ESPnet2; encoder-decoder + CTC; BPE 5000) ===
+  # Local FT checkpoints need base_model_id so the adapter can find the
+  # matching architecture/tokenizer (paths inside our local config.yaml
+  # reference the pod's filesystem and won't resolve on the Mac).
+  - {name: e_branchformer,           key: espnet, model_id: asapp/e_branchformer_librispeech}
+  - {name: e_branchformer-clean-ft,  key: espnet,
+     model_id:      results/checkpoints/espnet-ebranchformer-clean-ft,
+     base_model_id: asapp/e_branchformer_librispeech}
+  - {name: e_branchformer-mct-ft,    key: espnet,
+     model_id:      results/checkpoints/espnet-ebranchformer-mct-ft,
+     base_model_id: asapp/e_branchformer_librispeech}
 
 output: results/ft_ablation.jsonl
 seed_base: 0

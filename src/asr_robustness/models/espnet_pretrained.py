@@ -1,15 +1,17 @@
 """ESPnet adapter for pretrained models from the ESPnet model zoo.
 
-ESPnet is the reference toolkit named in the target role. Here it contributes a
+ESPnet is the reference toolkit named in the target role. It contributes a
 **pretrained** model as a benchmark peer (a model trained properly on full
-LibriSpeech, so the comparison is fair). Hands-on ESPnet *training* happens
-separately in Phase 6 via fine-tuning.
+LibriSpeech, so the comparison is fair) and, via Phase 6's fine-tuning,
+locally-trained checkpoints loaded back through the same adapter for the
+symmetric ablation.
 
-espnet / espnet_model_zoo are imported at module load, so this module is
-imported lazily (see ``asr_robustness.models.ensure_loaded``).
+espnet / espnet_model_zoo are imported lazily (see ``asr_robustness.models.ensure_loaded``).
 """
 
 from __future__ import annotations
+
+import os
 
 import numpy as np
 
@@ -20,10 +22,22 @@ from asr_robustness.models.registry import register
 
 @register("espnet")
 class ESPnetModel(ASRModel):
-    """A pretrained ESPnet ASR model served via ``espnet2`` Speech2Text.
+    """A pretrained or fine-tuned ESPnet ASR model served via ``espnet2`` Speech2Text.
 
-    ``model_id`` is an ESPnet model-zoo tag, e.g.
-    ``espnet/simpleoier_librispeech_asr_train_asr_conformer7_*``.
+    Two ways to load:
+
+    1. **Pretrained from model zoo**: ``model_id`` is a hub tag like
+       ``asapp/e_branchformer_librispeech``. ``ModelDownloader`` fetches (or
+       reuses cached) bundle artifacts.
+    2. **Local FT checkpoint**: ``model_id`` is a local directory that
+       contains a ``valid.acc.best.pth`` symlink (or file). The directory's
+       config files reference pod-side BPE/tokenizer paths that won't exist
+       on the Mac, so we additionally require ``base_model_id`` (the hub tag
+       of the bundle the FT was initialized from). We pull the bundle's
+       config + tokenizer through ``ModelDownloader`` (cached) and swap in
+       our local FT weights as ``asr_model_file``. The fine-tune doesn't
+       change architecture or tokenizer -- only weights -- so this is
+       exactly correct.
     """
 
     def __init__(
@@ -32,16 +46,35 @@ class ESPnetModel(ASRModel):
         name: str | None = None,
         device: str | None = None,
         beam_size: int = 5,
+        base_model_id: str | None = None,
     ):
         # Imported here (not at module top) so a missing espnet install only
         # fails when this model is actually used.
         from espnet2.bin.asr_inference import Speech2Text
         from espnet_model_zoo.downloader import ModelDownloader
 
-        self.name = name or model_id.split("/")[-1]
+        self.name = name or os.path.basename(model_id.rstrip("/"))
         self.model_id = model_id
 
-        downloaded = ModelDownloader().download_and_unpack(model_id)
+        if os.path.isdir(model_id):
+            if not base_model_id:
+                raise ValueError(
+                    f"model_id={model_id!r} is a local directory; you must "
+                    f"also provide base_model_id (e.g. "
+                    f"'asapp/e_branchformer_librispeech') so the adapter can "
+                    f"resolve the matching architecture and tokenizer."
+                )
+            downloaded = dict(ModelDownloader().download_and_unpack(base_model_id))
+            local_ckpt = os.path.join(model_id, "valid.acc.best.pth")
+            if not os.path.exists(local_ckpt):
+                raise FileNotFoundError(
+                    f"expected 'valid.acc.best.pth' inside {model_id!r}; "
+                    f"got contents: {os.listdir(model_id)}"
+                )
+            downloaded["asr_model_file"] = local_ckpt
+        else:
+            downloaded = ModelDownloader().download_and_unpack(model_id)
+
         # beam_size=5 (vs the ESPnet default of 20) cuts decode time ~3-4x with
         # negligible WER impact on this scale of model; the default is too
         # generous for the model sizes we're benchmarking.
