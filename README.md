@@ -47,7 +47,7 @@ for the full breakdown including paired transcripts and per-condition tables.
 
 Most public ASR benchmarks (LibriSpeech `test-clean`, etc.) use **clean, read
 speech recorded with good microphones**. Real-world operational audio — the kind
-the intelligence community actually has to transcribe — is **noisy, reverberant,
+real-world operational systems actually have to transcribe — is **noisy, reverberant,
 band-limited, and codec-compressed**. A model that scores 3% WER on read speech
 can degrade catastrophically (and *silently*, via fluent hallucination) on
 audio at 0 dB SNR.

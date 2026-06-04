@@ -49,7 +49,7 @@ transmission channel. A model that scores 3 % WER on such material can degrade
 catastrophically [Vincent+ 2017; Likhomanenko+ 2021] — and, more importantly, can
 degrade *silently* via fluent hallucination [Koenecke+ 2024] — on operationally
 realistic audio: cellphone intercepts in crowded rooms, far-field surveillance,
-narrowband telephony, packet-lossy VoIP, tactical radio. None of those failure modes
+narrowband telephony, packet-lossy VoIP, two-way radio. None of those failure modes
 are visible on the standard benchmark.
 
 This project's premise is that the right thing to measure for operational ASR is
@@ -174,8 +174,8 @@ it has operational consequences.
 A reviewer skimming the Whisper output sees "i am going to clean the air as soon as
 i can" — grammatical, confident, plausible. A reviewer skimming the wav2vec 2.0
 output sees "oan tei an ho as ow is fall" — obviously broken. **Only one of these
-two transcripts is safe to be wrong about.** In an intel-community pipeline where
-ASR output feeds downstream analysis, confident false positives propagate;
+two transcripts is safe to be wrong about.** In a production ASR pipeline where
+output feeds downstream analysis, confident false positives propagate;
 visibly-broken output gets flagged or filtered. The architectural choice has
 applied implications well beyond raw WER.
 
@@ -347,7 +347,7 @@ The length ratio at `babble_-5db` makes it concrete:
 That is a different kind of result from "MCT-FT lowered WER" — it changed the
 failure mode itself. The result is an ASR system whose output, on hard audio, reads
 as broken when it is broken — instead of reading as fluent and confidently wrong.
-For an intel-community pipeline, that is the difference between a transcript that
+For a production ASR pipeline, that is the difference between a transcript that
 gets flagged for review and one that quietly contaminates downstream analysis.
 
 The E-Branchformer mirrors the same hallucination pattern at lower magnitude:

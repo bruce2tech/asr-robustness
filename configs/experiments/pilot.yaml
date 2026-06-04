@@ -20,9 +20,9 @@ conditions:
    telephone,                              # narrowband + mu-law
    codec_opus_6k,                          # modern VoIP codec, low bitrate
    packet_loss_30pct,                      # transmission dropouts
-   cellphone_in_crowd_-5db,                # operational: mobile intercept
+   cellphone_in_crowd_-5db,                # operational: mobile call in noisy environment
    far_field_surveillance_-5db,            # operational: distant mic
-   walkie_talkie_0db]                      # operational: tactical radio
+   walkie_talkie_0db]                      # operational: two-way radio
 
 noise_bank: data/musan
 rir_bank: data/RIRS_NOISES/simulated_rirs
